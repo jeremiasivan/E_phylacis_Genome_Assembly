@@ -8,10 +8,9 @@ outdir_qc                   <- file.path(currentdir, "01_qc")
 outdir_qc_chopper           <- file.path(outdir_qc,  "01_chopper")
 outdir_qc_nanoplot_raw      <- file.path(outdir_qc,  "nanoplot_raw")
 outdir_qc_nanoplot_filtered <- file.path(outdir_qc,  "nanoplot_filtered")
-outdir_qc_kraken            <- file.path(outdir_qc,  "02_kraken")
-outdir_qc_genomescope       <- file.path(outdir_qc,  "03_genomescope")
+outdir_qc_genomescope       <- file.path(outdir_qc,  "02_genomescope")
 
-sapply(c(outdir_qc_chopper, outdir_qc_nanoplot_raw, outdir_qc_nanoplot_filtered, outdir_qc_kraken, outdir_qc_genomescope), function(x) {
+sapply(c(outdir_qc_chopper, outdir_qc_nanoplot_raw, outdir_qc_nanoplot_filtered, outdir_qc_genomescope), function(x) {
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
 # output files
@@ -24,6 +23,8 @@ if (length(ls_raw_fastqgz) < 1) {
     knitr::knit_exit()
 }
 ```
+
+## Chopper
 
 ```{r chopper, include=F}
 # run NanoPlot pre-filtering
@@ -79,10 +80,37 @@ data.table::fwrite(df_nanoplot_stats, file=file.path(outdir_qc_chopper, "summary
 data.table::fwrite(df_nanoplot_q,     file=file.path(outdir_qc_chopper, "summary_nanoplot_q.tsv"),     sep="\t", quote=F)
 ```
 
-```{r kraken, eval=params$run_kraken2, include=F}
-
-```
+## GenomeScope2
 
 ```{r genomescope, include=F}
+# run GenomeScope2
+f_kmc_genomescope(fn_fastq        = fn_filtered_fastqgz,
+                  kmer            = 21,
+                  dir_out         = outdir_qc_genomescope,
+                  thread          = params$thread,
+                  exe_kmc         = params$exe_kmc,
+                  exe_kmctools    = params$exe_kmctools,
+                  exe_genomescope = params$exe_genomescope)
+```
 
+## Kraken2
+
+```{r kraken, eval=params$run_kraken2, include=F}
+# check if database exists
+if (!dir.exists(params$dir_kraken2_db)) {
+    log4r::error(fn_logger, "Input dir_kraken2_db is not found. Skipped.")
+
+} else {
+    outdir_qc_kraken <- file.path(outdir_qc, "03_kraken")
+    if (!dir.exists(outdir_qc_kraken)) {
+        dir.create(outdir_qc_kraken, recursive=T)
+    }
+
+    f_kraken2(fn_fastq    = fn_filtered_fastqgz,
+              dir_db      = params$dir_kraken2_db,
+              confidence  = 0.2,
+              dir_out     = outdir_qc_kraken,
+              thread      = params$thread,
+              exe_kraken2 = params$exe_kraken2)
+}
 ```

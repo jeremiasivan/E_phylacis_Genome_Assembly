@@ -1,37 +1,38 @@
 ---
-title: "Eucalyptus x phylacis Genome Assembly"
-author: "Jeremias Ivan"
-date: "`r format(Sys.time(), '%d %B %Y, %H:%M%p')`"
+title  : "Eucalyptus x phylacis Genome Assembly"
+author : "Jeremias Ivan"
+date   : "`r format(Sys.time(), '%d %B %Y, %H:%M%p')`"
 
 output:
   html_document:
-    code_folding: show
-    toc: true
-    toc_float: true
+    code_folding : show
+    toc          : true
+    toc_float    : true
     
 params:
   # --- General -------------------------------------------------
-  codedir: "/home/user/E_phylacis_Genome_Assembly/"
-  prefix: ""
-  outdir: "/home/user/output/"
-  thread: 1
-  redo: FALSE
+  codedir : "/home/user/E_phylacis_Genome_Assembly/"
+  prefix  : ""
+  outdir  : "/home/user/output/"
+  thread  : 1
+  redo    : FALSE
   
   # --- Executables ---------------------------------------------
   exe_bgzip       : "bgzip"
   exe_chopper     : "chopper"
   exe_genomescope : "GenomeScope2"
   exe_kmc         : "kmc"
+  exe_kmctools    : "kmc_tools"
   exe_nanoplot    : "NanoPlot"
   exe_pigz        : "pigz"
 
   # --- Input Files ---------------------------------------------
-  dir_raw_fastqgz: ""
+  dir_raw_fastqgz : ""
 
   # --- Optional Steps ------------------------------------------
   run_kraken2    : FALSE
   exe_kraken2    : "kraken2"
-  dir_kraken2_db : ""
+  dir_kraken2_db : "/home/user/kraken2_db/pluspfp"
 ---
 
 ```{r, include=FALSE}

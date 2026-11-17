@@ -55,3 +55,50 @@ f_parse_nanostats <- function(file) {
 
     return(ls_output)
 }
+
+# function: run KMC and GenomeScope2
+f_kmc_genomescope <- function(fn_fastq, kmer, dir_out, thread, exe_kmc, exe_kmctools, exe_genomescope) {
+    # store the path to the filtered reads
+    writeLines(fn_fastq, file.path(dir_out, "files.txt"))
+
+    # run KMC
+    cmd_kmc <- paste(exe_kmc,
+                     paste0("-k", kmer),
+                     paste0("-t", thread),
+                     "-ci1 -cs10000",
+                     paste0("@", file.path(dir_out, "files.txt")),
+                     file.path(dir_out, "kmc_db"),
+                     dir_out)
+    system(cmd_kmc)
+
+    # generate the k-mer histogram
+    cmd_kmc_tools <- paste(exe_kmctools, "transform",
+                           file.path(dir_out, "kmc_db"),
+                           "histogram",
+                           file.path(dir_out, "histogram.txt"),
+                           "-ci1 -cs10000")
+    system(cmd_kmc_tools)
+
+    # run GenomeScope2
+    cmd_genomescope <- paste(exe_genomescope,
+                             "-i", file.path(dir_out, "histogram.txt"),
+                             "-o", dir_out,
+                             "-k", kmer,
+                             "-p", 2)
+    system(cmd_genomescope)
+}
+
+# function: run Kraken2
+f_kraken2 <- function(fn_fastq, dir_db, confidence, dir_out, thread, exe_kraken2) {
+    cmd_kraken2 <- paste(exe_kraken2, 
+                         "--db", dir_db,
+                         "--confidence", confidence,
+                         "--threads", thread,
+                         "--gzip-compressed",
+                         "--report", file.path(dir_out, "kraken2_report.txt"),
+                         "--report-minimizer-data",
+                         "--use-names",
+                         "--output", file.path(dir_out, "kraken2_output.txt"),
+                         fn_fastq)
+    system(cmd_kraken2)
+}
