@@ -1,0 +1,88 @@
+---
+title: "QC of Eucalyptus x phylacis ONT Reads"
+---
+
+```{r, include=FALSE}
+# create output directories
+outdir_qc                   <- file.path(currentdir, "01_qc")
+outdir_qc_chopper           <- file.path(outdir_qc,  "01_chopper")
+outdir_qc_nanoplot_raw      <- file.path(outdir_qc,  "nanoplot_raw")
+outdir_qc_nanoplot_filtered <- file.path(outdir_qc,  "nanoplot_filtered")
+outdir_qc_kraken            <- file.path(outdir_qc,  "02_kraken")
+outdir_qc_genomescope       <- file.path(outdir_qc,  "03_genomescope")
+
+sapply(c(outdir_qc_chopper, outdir_qc_nanoplot_raw, outdir_qc_nanoplot_filtered, outdir_qc_kraken, outdir_qc_genomescope), function(x) {
+  if (!dir.exists(x)) { dir.create(x, recursive=T) }})
+
+# output files
+fn_filtered_fastqgz <- file.path(outdir_qc_chopper, "filtered.fastq.gz")
+
+# check if input directory is empty
+ls_raw_fastqgz <- list.files(params$dir_raw_fastqgz, pattern="*\\.fastq.gz$", recursive=F, full.names=F)
+if (length(ls_raw_fastqgz) < 1) {
+    log4r::error(fn_logger, "Input dir_raw_fastqgz is empty. Exited.")
+    knitr::knit_exit()
+}
+```
+
+```{r chopper, include=F}
+# run NanoPlot pre-filtering
+f_nanoplot(fn_fastq     = file.path(params$dir_raw_fastqgz, "*.fastq.gz"),
+           dir_out      = outdir_qc_nanoplot_raw,
+           thread       = params$thread,
+           title        = "E_phylacis_Raw_ONT",
+           exe_nanoplot = params$exe_nanoplot) 
+
+# run Chopper
+if (!file.exists(fn_filtered_fastqgz) || params$redo) {
+    f_chopper(fn_fastq          = file.path(params$dir_raw_fastqgz, "*.fastq.gz"),
+              min_q             = 10,
+              min_len           = 15000,
+              fn_fastq_filtered = fn_filtered_fastqgz,
+              thread            = params$thread,
+              exe_pigz          = params$exe_pigz,
+              exe_chopper       = params$exe_chopper,
+              exe_bgzip         = params$exe_bgzip)
+}
+
+# run NanoPlot post-filtering
+f_nanoplot(fn_fastq     = fn_filtered_fastqgz,
+           dir_out      = outdir_qc_nanoplot_filtered,
+           thread       = params$thread,
+           title        = "E_phylacis_Filtered_ONT",
+           exe_nanoplot = params$exe_nanoplot)
+
+# create a comparison table for the NanoPlot results
+df_nanoplot_raw      <- f_parse_nanostats(file.path(outdir_qc_nanoplot_raw,      "NanoStats.txt"))
+df_nanoplot_filtered <- f_parse_nanostats(file.path(outdir_qc_nanoplot_filtered, "NanoStats.txt"))
+
+# convert the table to be more readable
+df_nanoplot_all   <- as.data.frame(t(rbind(df_nanoplot_raw, df_nanoplot_filtered)))
+df_nanoplot_stats <- df_nanoplot_all %>%
+                        mutate(metrics = rownames(df_nanoplot_all), raw = V1, filtered = V2) %>%
+                        select(metrics, raw, filtered) %>%
+                        filter(!grepl("^q", metrics))
+
+# extract the percentage of reads per quality score
+pattern <- c(reads = "\\d+", "\\s+\\(", pct = "[0-9.]+", "%\\)\\s+", mb = "[0-9.]+", "Mb")
+
+df_nanoplot_q     <- df_nanoplot_all %>%
+                        mutate(metrics = rownames(df_nanoplot_all), raw = V1, filtered = V2) %>%
+                        select(metrics, raw, filtered) %>%
+                        filter(grepl("^q", metrics)) %>%
+                        separate_wider_regex(raw,      pattern, names_sep = "_") %>%
+                        separate_wider_regex(filtered, pattern, names_sep = "_") %>%
+                        mutate(across(-metrics, as.numeric))
+
+# save the output tables
+data.table::fwrite(df_nanoplot_stats, file=file.path(outdir_qc_chopper, "summary_nanoplot_stats.tsv"), sep="\t", quote=F)
+data.table::fwrite(df_nanoplot_q,     file=file.path(outdir_qc_chopper, "summary_nanoplot_q.tsv"),     sep="\t", quote=F)
+```
+
+```{r kraken, eval=params$run_kraken2, include=F}
+
+```
+
+```{r genomescope, include=F}
+
+```
