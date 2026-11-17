@@ -102,3 +102,150 @@ f_kraken2 <- function(fn_fastq, dir_db, confidence, dir_out, thread, exe_kraken2
                          fn_fastq)
     system(cmd_kraken2)
 }
+
+# function: run Hifiasm
+f_hifiasm <- function(fn_fastq, dir_out, hifiasm_params, thread, exe_hifiasm) {
+    cmd_hifiasm <- paste(exe_hifiasm,
+                         "-o", file.path(dir_out, "hifiasm_asm"),
+                         "-t", thread,
+                         "--ont --dual-scaf",
+                         hifiasm_params,
+                         fn_fastq,
+                         "2>&1 | tee", file.path(dir_out, "hifiasm_restart.log"))
+    system(cmd_hifiasm)
+}
+
+# function: run minimap2 (output: paf)
+f_minimap2_paf <- function(fn_ref, minimap_params, fn_query, fn_out, thread, exe_minimap2) {
+    cmd_minimap2 <- paste(exe_minimap2,
+                          minimap_params,
+                          "-t", thread,
+                          fn_ref,
+                          fn_query,
+                          ">", fn_out)
+    system(cmd_minimap2)
+}
+
+# function: run minimap2 (output: bam)
+f_minimap2_bam <- function(fn_ref, minimap_params, fn_query, fn_out, thread, exe_minimap2, exe_samtools) {
+    cmd_minimap2 <- paste(exe_minimap2,
+                          minimap_params,
+                          "-t", thread,
+                          fn_ref,
+                          fn_query,
+                          "|", 
+                          exe_samtools, "sort -o", fn_out)
+    system(cmd_minimap2)
+
+    # index the BAM file
+    system(paste(exe_samtools, "index -c", fn_out))
+}
+
+# function: run compleasm
+f_compleasm <- function(fn_fasta, dir_out, dir_busco_lineage, thread, exe_compleasm) {
+    cmd_compleasm <- paste(exe_compleasm, "run",
+                           "-a", fn_fasta,
+                           "-o", dir_out,
+                           "-t", thread,
+                           "-l eudicotyledons --odb odb12",
+                           "-L", dir_busco_lineage)
+    system(cmd_compleasm)
+}
+
+# function: change the headers of compleasm output table
+f_update_compleasm_table <- function(fn_input, fn_output) {
+    # open the input file
+    lines <- readLines(fn_input)
+
+    # change the first line to indicate the BUSCO version
+    lines[1] <- sub("^# compleasm version is: .*", "# BUSCO version is: 6.1.0", lines[1])
+
+    # change the headers
+    lines <- sub("\tSingle\t",      "\tComplete\t",   lines)
+    lines <- sub("\tInterspaced\t", "\tFragmented\t", lines)
+
+    # write the modified file
+    writeLines(lines, con=fn_output)
+}
+
+# function: create BlobTools output directory
+f_blobtools_create <- function(fn_fasta, taxid, dir_taxdump, dir_out, exe_blobtools) {
+    cmd_blobtools_create <- paste(exe_blobtools, "create",
+                                  "--fasta", fn_fasta,
+                                  "--taxid", taxid,
+                                  "--taxdump", dir_taxdump,
+                                  dir_out)
+    system(cmd_blobtools_create)   
+}
+
+# function: add to BlobTools directory (BAM files)
+f_blobtools_add_bam <- function(dir_blobtools, fn_bam, thread, exe_blobtools) {
+    cmd_blobtools_add <- paste(exe_blobtools, "add",
+                               "--cov", fn_bam,
+                               "--thread", thread,
+                               dir_blobtools)
+    system(cmd_blobtools_add)
+}
+
+# function: add to BlobTools directory (busco)
+f_blobtools_add_busco <- function(dir_blobtools, fn_busco, exe_blobtools) {
+    cmd_blobtools_add <- paste(exe_blobtools, "add",
+                               "--busco", fn_busco,
+                               dir_blobtools)
+    system(cmd_blobtools_add)
+}
+
+# function: run blastn for BlobTools
+f_blastn <- function(fn_query, fn_db, fn_out, thread, exe_blastn) {
+    cmd_blastn <- paste(exe_blastn, "-task megablast",
+                        "-db", fn_db,
+                        "-query", fn_query,
+                        "-outfmt '6 qseqid staxids bitscore std'",
+                        "-max_target_seqs 10 -max_hsps 1 -evalue 1e-25",
+                        "-num_threads", thread,
+                        "| sed 's/_sliding:[0-9]*-[0-9]*//'", 
+                        ">", fn_out)
+    system(cmd_blastn)
+}
+
+# function: run Diamond for BlobTools
+f_diamond <- function(fn_query, fn_db, fn_out, thread, exe_diamond) {
+    cmd_diamond <- paste(exe_diamond, "blastx", 
+                         "--query", fn_query,
+                         "--db", fn_db,
+                         "--outfmt 6 qseqid staxids bitscore qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore",
+                         "--sensitive --max-target-seqs 1 --evalue 1e-25",
+                         "--threads", thread,
+                         "| sed 's/_sliding:[0-9]*-[0-9]*//'",
+                         ">", fn_out)
+    system(cmd_diamond)
+}
+
+# function: add BLAST/DIAMOND results to BlobTools directory
+f_blobtools_add_hits <- function(dir_blobtools, hits, dir_taxdump, exe_blobtools) {
+    cmd_blobtools_add <- paste(exe_blobtools, "add",
+                               hits,
+                               "--taxrule bestsumorder",
+                               "--taxdump", dir_taxdump,
+                               dir_blobtools)
+    system(cmd_blobtools_add)
+}
+
+# function: export BlobTools plots
+f_blobtools_export <- function(dir_blobtools, dir_out, prefix, exe_blobtools, exe_blobtk) {
+    # export table
+    cmd_blobtools_table <- paste(exe_blobtools, "filter",
+                                 "--table", file.path(dir_out, paste0(prefix, "_btk.tsv")),
+                                 dir_blobtools)
+    system(cmd_blobtools_table)
+
+    # export plots
+    system(paste(exe_blobtk, "plot",
+                 "-v blob", 
+                 "-d", dir_blobtools,
+                 "-o", file.path(dir_out, paste0(prefix, "_blob.png"))))
+    system(paste(exe_blobtk, "plot",
+                 "-v snail",
+                 "-d", dir_blobtools,
+                 "-o", file.path(dir_out, paste0(prefix, "_snail.svg"))))
+}

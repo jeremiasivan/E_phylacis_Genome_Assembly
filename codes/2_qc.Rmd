@@ -95,7 +95,7 @@ f_kmc_genomescope(fn_fastq        = fn_filtered_fastqgz,
 
 ## Kraken2
 
-```{r kraken, eval=params$run_kraken2, include=F}
+```{r kraken, eval=params$run_kraken2, include=params$run_kraken2}
 # check if database exists
 if (!dir.exists(params$dir_kraken2_db)) {
     log4r::error(fn_logger, "Input dir_kraken2_db is not found. Skipped.")

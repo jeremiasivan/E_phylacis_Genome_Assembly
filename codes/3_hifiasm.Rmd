@@ -1,0 +1,217 @@
+---
+title: "Assembly of Eucalyptus x phylacis ONT Reads"
+---
+
+```{r, include=FALSE}
+# create output directories
+outdir_hifiasm             <- file.path(currentdir, "02_hifiasm")
+outdir_hifiasm_assembly    <- file.path(outdir_hifiasm, "01_assembly")
+outdir_hifiasm_dotplot     <- file.path(outdir_hifiasm, "02_dotplot")
+outdir_hifiasm_blobtools   <- file.path(outdir_hifiasm, "03_blobtools")
+outdir_blobtools_minimap   <- file.path(outdir_hifiasm_blobtools, "minimap")
+outdir_blobtools_compleasm <- file.path(outdir_hifiasm_blobtools, "compleasm")
+outdir_blobtools_taxdump   <- file.path(outdir_hifiasm_blobtools, "taxdump")
+
+sapply(c(outdir_hifiasm_assembly, outdir_hifiasm_dotplot, outdir_blobtools_minimap, outdir_blobtools_compleasm, outdir_blobtools_taxdump), function(x) {
+  if (!dir.exists(x)) { dir.create(x, recursive=T) }})
+
+# output files
+fn_hap1      <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap1.p_ctg.fa")
+fn_hap2      <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap2.p_ctg.fa")
+
+# download BUSCO lineage
+dir_busco_lineage <- file.path(currentdir, "busco_lineages")
+system(paste(params$exe_compleasm, "download",
+             "-L", dir_busco_lineage,
+             "--odb odb12 eudicotyledons"))
+
+# download tax_dump
+setwd(outdir_blobtools_taxdump)
+system("curl -L https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/new_taxdump/new_taxdump.tar.gz | tar xzf -")
+setwd(currentdir)
+```
+
+## Hifiasm
+
+```{r hifiasm}
+# run hifiasm
+if (!all(file.exists(fn_hap1, fn_hap2)) || params$redo) {
+    f_hifiasm(fn_fastq       = fn_filtered_fastqgz,
+              dir_out        = outdir_hifiasm_assembly,
+              hifiasm_params = "-l 3 -s 0.50 --telo-m AAACCCT --hom-cov 55",
+              thread         = params$thread,
+              exe_hifiasm    = params$exe_hifiasm)
+    
+    # index both haplotypes
+    system(paste(params$exe_samtools, "faidx", fn_hap1))
+    system(paste(params$exe_samtools, "faidx", fn_hap2))
+}
+
+# generate a dotplot between the two haplotypes
+f_minimap2_paf(fn_ref         = fn_hap1,
+               minimap_params = "-x asm20 -N 1000 --secondary=no",
+               fn_query       = fn_hap2,
+               fn_out         = file.path(outdir_hifiasm_dotplot, "hap1_hap2.paf"),
+               thread         = params$thread,
+               exe_minimap2   = params$exe_minimap)
+
+cmd_dotplot <- paste("Rscript",
+                     file.path(params$codedir, "scripts", "pafCoordsDotPlotly.R"),
+                     "-i", file.path(outdir_hifiasm_dotplot, "hap1_hap2.paf"),
+                     "-o", file.path(outdir_hifiasm_dotplot, "hap1_hap2_dotplot"),
+                     "-s -t")
+system(cmd_dotplot)
+```
+
+## BlobTools
+
+```{r blobtools, eval=params$run_blobtools, include=params$run_blobtools}
+# output directories
+dir_hap1_btk <- file.path(outdir_hifiasm_blobtools, "hap1_btk")
+dir_hap2_btk <- file.path(outdir_hifiasm_blobtools, "hap2_btk")
+
+# build the Blobdir
+f_blobtools_create(fn_fasta      = fn_hap1,
+                   taxid         = 3932,
+                   dir_taxdump   = outdir_blobtools_taxdump,
+                   dir_out       = dir_hap1_btk,
+                   exe_blobtools = params$exe_blobtools)
+f_blobtools_create(fn_fasta      = fn_hap2,
+                   taxid         = 3932,
+                   dir_taxdump   = outdir_blobtools_taxdump,
+                   dir_out       = dir_hap2_btk,
+                   exe_blobtools = params$exe_blobtools)
+
+# map filtered ONT reads to each haploptype
+f_minimap2_bam(fn_ref         = fn_hap1,
+               minimap_params = "-ax lr:hq",
+               fn_query       = fn_filtered_fastqgz,
+               fn_out         = file.path(outdir_blobtools_minimap, "hap1.bam"),
+               thread         = params$thread,
+               exe_minimap2   = params$exe_minimap)
+f_minimap2_bam(fn_ref         = fn_hap2,
+               minimap_params = "-ax lr:hq",
+               fn_query       = fn_filtered_fastqgz,
+               fn_out         = file.path(outdir_blobtools_minimap, "hap2.bam"),
+               thread         = params$thread,
+               exe_minimap2   = params$exe_minimap)
+
+# add coverage
+f_blobtools_add_bam(dir_blobtools = dir_hap1_btk,
+                    fn_bam        = file.path(outdir_blobtools_minimap, "hap1.bam"),
+                    thread        = params$thread,
+                    exe_blobtools = params$exe_blobtools)
+f_blobtools_add_bam(dir_blobtools = dir_hap2_btk,
+                    fn_bam        = file.path(outdir_blobtools_minimap, "hap2.bam"),
+                    thread        = params$thread,
+                    exe_blobtools = params$exe_blobtools)
+
+# compleasm
+f_compleasm(fn_fasta          = fn_hap1,
+            dir_out           = file.path(outdir_blobtools_compleasm, "hap1"),
+            dir_busco_lineage = dir_busco_lineage,
+            thread            = params$thread,
+            exe_compleasm     = params$exe_compleasm)
+f_compleasm(fn_fasta          = fn_hap2,
+            dir_out           = file.path(outdir_blobtools_compleasm, "hap2"),
+            dir_busco_lineage = dir_busco_lineage,
+            thread            = params$thread,
+            exe_compleasm     = params$exe_compleasm)
+
+# change compleasm output table to follow BlobTools requirements
+f_update_compleasm_table(fn_input  = file.path(outdir_blobtools_compleasm, "hap1", "eudicotyledons_odb12", "full_table_busco_format.tsv" ),
+                         fn_output = file.path(outdir_blobtools_compleasm, "hap1", "eudicotyledons_odb12", "hap1_busco_btk.tsv"))
+f_update_compleasm_table(fn_input  = file.path(outdir_blobtools_compleasm, "hap2", "eudicotyledons_odb12", "full_table_busco_format.tsv" ),
+                         fn_output = file.path(outdir_blobtools_compleasm, "hap2", "eudicotyledons_odb12", "hap2_busco_btk.tsv"))
+
+# add BUSCO completeness
+f_blobtools_add_busco(dir_blobtools = dir_hap1_btk,
+                      fn_busco      = file.path(outdir_blobtools_compleasm, "hap1", "eudicotyledons_odb12", "hap1_busco_btk.tsv"),
+                      exe_blobtools = params$exe_blobtools)
+f_blobtools_add_busco(dir_blobtools = dir_hap2_btk,
+                      fn_busco      = file.path(outdir_blobtools_compleasm, "hap2", "eudicotyledons_odb12", "hap2_busco_btk.tsv"),
+                      exe_blobtools = params$exe_blobtools)
+
+# check if BLAST database exists
+if (any(dir.exists(blast_nt_db, blast_prot_db))) {
+    # create the output directory
+    outdir_blobtools_blast <- file.path(outdir_hifiasm_blobtools, "blast")
+    if (!dir.exists(outdir_blobtools_blast)) {
+        dir.create(outdir_blobtools_blast, recursive=T)
+    }
+
+    # generate 100kb sliding-windows
+    system(paste(params$exe_seqkit, "sliding",
+                "-s 100000 -W 100000",
+                "-g", fn_hap1,
+                ">", file.path(outdir_blobtools_blast, "hap1.chunks.fa")))
+    system(paste(params$exe_seqkit, "sliding",
+                "-s 100000 -W 100000",
+                "-g", fn_hap2,
+                ">", file.path(outdir_blobtools_blast, "hap2.chunks.fa")))
+
+    # initiate variables
+    ls_hits_hap1 <- NULL
+    ls_hits_hap2 <- NULL
+
+    # blastn
+    if (dir.exists(blast_nt_db)) {
+        f_blastn(fn_query   = file.path(outdir_blobtools_blast, "hap1.chunks.fa"),
+                 fn_db      = blast_nt_db,
+                 fn_out     = file.path(outdir_blobtools_blast, "hap1.blastn.out"),
+                 thread     = params$thread,
+                 exe_blastn = params$exe_blastn)
+        f_blastn(fn_query   = file.path(outdir_blobtools_blast, "hap2.chunks.fa"),
+                 fn_db      = blast_nt_db,
+                 fn_out     = file.path(outdir_blobtools_blast, "hap2.blastn.out"),
+                 thread     = params$thread,
+                 exe_blastn = params$exe_blastn)
+
+        # add BLAST hits
+        ls_hits_hap1 <- c(ls_hits_hap1, paste("--hits", file.path(outdir_blobtools_blast, "hap1.blastn.out")))
+        ls_hits_hap2 <- c(ls_hits_hap2, paste("--hits", file.path(outdir_blobtools_blast, "hap2.blastn.out")))
+    }
+
+    # diamond
+    if (dir.exists(blast_prot_db)) {
+        f_diamond(fn_query    = file.path(outdir_blobtools_blast, "hap1.chunks.fa"),
+                  fn_db       = blast_prot_db,
+                  fn_out      = file.path(outdir_blobtools_blast, "hap1.diamond.out"),
+                  thread      = params$thread,
+                  exe_diamond = params$exe_diamond)
+        f_diamond(fn_query    = file.path(outdir_blobtools_blast, "hap2.chunks.fa"),
+                  fn_db       = blast_prot_db,
+                  fn_out      = file.path(outdir_blobtools_blast, "hap2.diamond.out"),
+                  thread      = params$thread,
+                  exe_diamond = params$exe_diamond)
+        
+        # add BLAST hits
+        ls_hits_hap1 <- c(ls_hits_hap1, paste("--hits", file.path(outdir_blobtools_blast, "hap1.diamond.out")))
+        ls_hits_hap2 <- c(ls_hits_hap2, paste("--hits", file.path(outdir_blobtools_blast, "hap2.diamond.out")))
+    }
+
+    # add BLAST hits to Blobdir
+    if (!is.null(ls_hits_hap1) && !is.null(ls_hits_hap2)) {
+        f_blobtools_add_hits(dir_blobtools = dir_hap1_btk,
+                             hits          = paste(ls_hits_hap1, collapse=" "),
+                             dir_taxdump   = outdir_blobtools_taxdump,
+                             exe_blobtools = params$exe_blobtools)
+        f_blobtools_add_hits(dir_blobtools = dir_hap2_btk,
+                             hits          = paste(ls_hits_hap2, collapse=" "),
+                             dir_taxdump   = outdir_blobtools_taxdump,
+                             exe_blobtools = params$exe_blobtools)
+    }
+
+    # export output
+    f_blobtools_export(dir_blobtools = dir_hap1_btk,
+                       dir_out       = outdir_hifiasm_blobtools,
+                       prefix        = "hap1",
+                       exe_blobtools = params$exe_blobtools,
+                       exe_blobtk    = params$exe_blobtk)
+    f_blobtools_export(dir_blobtools = dir_hap2_btk,
+                       dir_out       = outdir_hifiasm_blobtools,
+                       prefix        = "hap2",
+                       exe_blobtools = params$exe_blobtools,
+                       exe_blobtk    = params$exe_blobtk)
+}
+```

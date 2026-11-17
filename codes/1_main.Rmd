@@ -20,11 +20,16 @@ params:
   # --- Executables ---------------------------------------------
   exe_bgzip       : "bgzip"
   exe_chopper     : "chopper"
+  exe_compleasm   : "compleasm"
   exe_genomescope : "GenomeScope2"
+  exe_hifiasm     : "hifiasm"
   exe_kmc         : "kmc"
   exe_kmctools    : "kmc_tools"
+  exe_minimap     : "minimap2"
   exe_nanoplot    : "NanoPlot"
   exe_pigz        : "pigz"
+  exe_samtools    : "samtools"
+  exe_seqkit      : "seqkit"
 
   # --- Input Files ---------------------------------------------
   dir_raw_fastqgz : ""
@@ -33,6 +38,14 @@ params:
   run_kraken2    : FALSE
   exe_kraken2    : "kraken2"
   dir_kraken2_db : "/home/user/kraken2_db/pluspfp"
+
+  run_blobtools  : TRUE
+  exe_blobtools  : "blobtools"
+  exe_blobtk     : "blobtk"
+  exe_blastn     : "blastn"
+  exe_diamond    : "diamond"
+  blast_nt_db    : "/home/user/blobtools/core_nt"
+  blast_prot_db  : "/home/user/blobtools/uniprot_sprot.dmnd"
 ---
 
 ```{r, include=FALSE}
