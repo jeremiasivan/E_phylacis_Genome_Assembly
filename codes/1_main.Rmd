@@ -22,11 +22,13 @@ params:
   exe_chopper     : "chopper"
   exe_compleasm   : "compleasm"
   exe_genomescope : "GenomeScope2"
+  exe_gfatools    : "gfatools"
   exe_hifiasm     : "hifiasm"
   exe_kmc         : "kmc"
   exe_kmctools    : "kmc_tools"
   exe_minimap     : "minimap2"
   exe_nanoplot    : "NanoPlot"
+  exe_oatk        : "oatk"
   exe_pigz        : "pigz"
   exe_samtools    : "samtools"
   exe_seqkit      : "seqkit"
@@ -49,7 +51,6 @@ params:
 
   run_ptDNA_validation : TRUE
   fn_ptDNA_validation  : ""
-  exe_fastp            : "fastp"
   exe_bedtools         : "bedtools"
   exe_bcftools         : "bcftools"
   exe_iqtree           : "iqtree2"
@@ -90,6 +91,12 @@ knitr::opts_knit$set(root.dir=currentdir)
 ```
 
 ```{r child = file.path(path.expand(params$codedir), "codes", "2_qc.Rmd")}
+```
+
+```{r child = file.path(path.expand(params$codedir), "codes", "3_hifiasm.Rmd")}
+```
+
+```{r child = file.path(path.expand(params$codedir), "codes", "4_organelle.Rmd")}
 ```
 
 ```{r, include=FALSE}

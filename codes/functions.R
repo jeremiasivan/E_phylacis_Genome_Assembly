@@ -263,17 +263,6 @@ f_oatk <- function(fn_fastq, prefix, fn_ref_mito, fn_ref_pltd, thread, exe_oatk)
     system(cmd_oatk)
 }
 
-# function: run fastp
-f_fastp <- function(fn_fastq_r1, fn_fastq_r2, fn_fastq_filtered_r1, fn_fastq_filtered_r2, thread, exe_fastp) {
-    cmd_fastp <- paste(exe_fastp,
-                       "-i", fn_fastq_r1,
-                       "-I", fn_fastq_r2,
-                       "-o", fn_fastq_filtered_r1,
-                       "-O", fn_fastq_filtered_r2,
-                       "-w", thread)
-    system(cmd_fastp)
-}
-
 # function: run minimap2 for short reads (output: bam)
 f_minimap2_shortreads <- function(fn_ref, minimap_params, fn_fastq_r1, fn_fastq_r2, fn_out, thread, exe_minimap2, exe_samtools, exe_bedtools) {
     cmd_minimap2 <- paste(exe_minimap2,
@@ -325,7 +314,7 @@ f_call_consensus <- function(fn_ref, fn_bed, fn_vcf, fn_consensus, exe_bcftools)
 f_iqtree2 <- function(fn_fasta, thread, exe_iqtree2) {
     cmd_iqtree2 <- paste(exe_iqtree2,
                          "-s", fn_fasta,
-                         "-T", thread.
+                         "-T", thread,
                          "-B 1000")
     system(cmd_iqtree2)
 }

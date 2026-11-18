@@ -112,13 +112,15 @@ f_minimap2_bam(fn_ref         = fn_hap1,
                fn_query       = fn_filtered_fastqgz,
                fn_out         = file.path(outdir_blobtools_minimap, "hap1.bam"),
                thread         = params$thread,
-               exe_minimap2   = params$exe_minimap)
+               exe_minimap2   = params$exe_minimap,
+               exe_samtools   = params$exe_samtools)
 f_minimap2_bam(fn_ref         = fn_hap2,
                minimap_params = "-ax lr:hq",
                fn_query       = fn_filtered_fastqgz,
                fn_out         = file.path(outdir_blobtools_minimap, "hap2.bam"),
                thread         = params$thread,
-               exe_minimap2   = params$exe_minimap)
+               exe_minimap2   = params$exe_minimap,
+               exe_samtools   = params$exe_samtools)
 
 # add coverage
 f_blobtools_add_bam(dir_blobtools = dir_hap1_btk,
@@ -157,7 +159,7 @@ f_blobtools_add_busco(dir_blobtools = dir_hap2_btk,
                       exe_blobtools = params$exe_blobtools)
 
 # check if BLAST database exists
-if (any(dir.exists(blast_nt_db, blast_prot_db))) {
+if (any(file.exists(paste0(params$blast_nt_db, ".nal"), params$blast_prot_db))) {
     # create the output directory
     outdir_blobtools_blast <- file.path(outdir_hifiasm_blobtools, "blast")
     if (!dir.exists(outdir_blobtools_blast)) {
@@ -179,14 +181,14 @@ if (any(dir.exists(blast_nt_db, blast_prot_db))) {
     ls_hits_hap2 <- NULL
 
     # blastn
-    if (dir.exists(blast_nt_db)) {
+    if (file.exists(paste0(params$blast_nt_db, ".nal"))) {
         f_blastn(fn_query   = file.path(outdir_blobtools_blast, "hap1.chunks.fa"),
-                 fn_db      = blast_nt_db,
+                 fn_db      = params$blast_nt_db,
                  fn_out     = file.path(outdir_blobtools_blast, "hap1.blastn.out"),
                  thread     = params$thread,
                  exe_blastn = params$exe_blastn)
         f_blastn(fn_query   = file.path(outdir_blobtools_blast, "hap2.chunks.fa"),
-                 fn_db      = blast_nt_db,
+                 fn_db      = params$blast_nt_db,
                  fn_out     = file.path(outdir_blobtools_blast, "hap2.blastn.out"),
                  thread     = params$thread,
                  exe_blastn = params$exe_blastn)
@@ -197,14 +199,14 @@ if (any(dir.exists(blast_nt_db, blast_prot_db))) {
     }
 
     # diamond
-    if (dir.exists(blast_prot_db)) {
+    if (file.exists(params$blast_prot_db)) {
         f_diamond(fn_query    = file.path(outdir_blobtools_blast, "hap1.chunks.fa"),
-                  fn_db       = blast_prot_db,
+                  fn_db       = params$blast_prot_db,
                   fn_out      = file.path(outdir_blobtools_blast, "hap1.diamond.out"),
                   thread      = params$thread,
                   exe_diamond = params$exe_diamond)
         f_diamond(fn_query    = file.path(outdir_blobtools_blast, "hap2.chunks.fa"),
-                  fn_db       = blast_prot_db,
+                  fn_db       = params$blast_prot_db,
                   fn_out      = file.path(outdir_blobtools_blast, "hap2.diamond.out"),
                   thread      = params$thread,
                   exe_diamond = params$exe_diamond)

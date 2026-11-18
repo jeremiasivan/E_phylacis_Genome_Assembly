@@ -59,16 +59,18 @@ if (!file.exists(params$fn_ptDNA_validation)) {
 } else {
     # open the metadata file
     df_metadata <- data.table::fread(params$fn_ptDNA_validation)
-    if (!all(c("sample", "r1_dir", "r2_dir")) %in% colnames(df_metadata)) {
+    if (!all(c("samples", "r1_dir", "r2_dir") %in% colnames(df_metadata))) {
         log4r::error(fn_logger, "Invalid column names for fn_ptDNA_validation. Skipped.")
     
     } else {
         # create output directory
         outdir_organelle_validation  <- file.path(outdir_organelle, "02_validation")
-        outdir_validation_shortreads <- file.path(outdir_organelle_validation, "00_filtered_reads")
         outdir_validation_mapping    <- file.path(outdir_organelle_validation, "01_mapping")
         outdir_validation_consensus  <- file.path(outdir_organelle_validation, "02_consensus")
         outdir_validation_tree       <- file.path(outdir_organelle_validation, "03_tree")
+
+        sapply(c(outdir_validation_shortreads, outdir_validation_mapping, outdir_validation_consensus, outdir_validation_tree), function(x) {
+            if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
         # remove the IRa region (which is identical to IRb)
         fn_ptDNA_noIRa <- file.path(outdir_organelle_validation, "E_phylacis.pltd.noIRa.fasta")
@@ -81,33 +83,22 @@ if (!file.exists(params$fn_ptDNA_validation)) {
         registerDoSNOW(nwcl)
 
         # iterate over sample
-        foreach (sample = unique(df_metadata$sample)) %dopar% {
+        foreach (sample = unique(df_metadata$samples)) %dopar% {
             # subset the data.frame
-            df_subset <- df_metadata[df_metadata$sample == sample, ]
+            df_subset <- df_metadata[df_metadata$samples == sample, ]
 
             # check if the sample is duplicated
             if (nrow(df_subset) != 1) {
                 return (NULL)
             }
-
-            # run fastp
-            fn_fastq_filtered_r1 <- file.path(outdir_validation_shortreads, paste0(sample, ".R1.fastq.gz"))
-            fn_fastq_filtered_r2 <- file.path(outdir_validation_shortreads, paste0(sample, ".R2.fastq.gz"))
-
-            f_fastp(fn_fastq_r1          = df_subset$r1_dir[1],
-                    fn_fastq_r2          = df_subset$r2_dir[1],
-                    fn_fastq_filtered_r1 = fn_fastq_filtered_r1,
-                    fn_fastq_filtered_r2 = fn_fastq_filtered_r2,
-                    thread               = 1,
-                    exe_fastp            = params$exe_fastp)
             
             # run minimap
             fn_bam <- file.path(outdir_validation_mapping, paste0(sample, ".bam"))
 
             f_minimap2_shortreads(fn_ref         = fn_ptDNA_noIRa,
                                   minimap_params = "-ax sr",
-                                  fn_fastq_r1    = fn_fastq_filtered_r1,
-                                  fn_fastq_r2    = fn_fastq_filtered_r2,
+                                  fn_fastq_r1    = df_subset$r1_dir[1],
+                                  fn_fastq_r2    = df_subset$r1_dir[2],
                                   fn_out         = fn_bam,
                                   thread         = 1,
                                   exe_minimap2   = params$exe_minimap,
@@ -124,12 +115,12 @@ if (!file.exists(params$fn_ptDNA_validation)) {
                               exe_bcftools = params$exe_bcftools)
             
             # generate consensus sequences
-            fn_consenus <- file.path(outdir_validation_consensus, paste0(sample, ".fasta"))
+            fn_consensus <- file.path(outdir_validation_consensus, paste0(sample, ".fasta"))
 
             f_call_consensus(fn_ref       = fn_ptDNA_noIRa,
                              fn_bed       = file.path(outdir_validation_mapping, paste0(sample, ".lowcov.bed")),
                              fn_vcf       = file.path(outdir_validation_mapping, paste0(sample, ".snps.vcf.gz")),
-                             fn_consensus = fn_consenus,
+                             fn_consensus = fn_consensus,
                              exe_bcftools = params$exe_bcftools)
         }
 
@@ -137,6 +128,7 @@ if (!file.exists(params$fn_ptDNA_validation)) {
 
         # combine all consensus sequences into one file
         fn_all_ptDNA <- file.path(outdir_validation_tree, "all_ptDNA.fasta")
+        unlink(fn_all_ptDNA)
 
         # iterate over samples
         for (sample in c("E_x_phylacis_ref", unique(df_metadata$sample))) {
