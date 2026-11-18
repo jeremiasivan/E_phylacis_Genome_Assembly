@@ -262,3 +262,70 @@ f_oatk <- function(fn_fastq, prefix, fn_ref_mito, fn_ref_pltd, thread, exe_oatk)
                       fn_fastq)
     system(cmd_oatk)
 }
+
+# function: run fastp
+f_fastp <- function(fn_fastq_r1, fn_fastq_r2, fn_fastq_filtered_r1, fn_fastq_filtered_r2, thread, exe_fastp) {
+    cmd_fastp <- paste(exe_fastp,
+                       "-i", fn_fastq_r1,
+                       "-I", fn_fastq_r2,
+                       "-o", fn_fastq_filtered_r1,
+                       "-O", fn_fastq_filtered_r2,
+                       "-w", thread)
+    system(cmd_fastp)
+}
+
+# function: run minimap2 for short reads (output: bam)
+f_minimap2_shortreads <- function(fn_ref, minimap_params, fn_fastq_r1, fn_fastq_r2, fn_out, thread, exe_minimap2, exe_samtools, exe_bedtools) {
+    cmd_minimap2 <- paste(exe_minimap2,
+                          minimap_params,
+                          "-t", thread,
+                          fn_ref,
+                          fn_fastq_r1, fn_fastq_r2,
+                          "|", exe_samtools, "sort -o", fn_out)
+    system(cmd_minimap2)
+
+    # index the BAM file
+    system(paste(exe_samtools, "index", fn_out))
+
+    # extract regions with low depth
+    system(paste(exe_samtools, "depth -a", fn_out,
+                 "|", "awk '$3<10 {print $1\"\t\"$2-1\"\t\"$2}'", 
+                 "|", exe_bedtools, "merge >", gsub(".bam", ".lowcov.bed", fn_out)))
+}
+
+# function: variant calling
+f_variant_calling <- function(fn_ref, fn_bam, ploidy, fn_vcf, exe_bcftools) {
+    cmd_variant_calling <- paste(exe_bcftools, "mpileup",
+                                 "-f", fn_ref,
+                                 "-q 20 -Q 20 -a AD,DP",
+                                 "-Ou", fn_bam,
+                                 "|", exe_bcftools, "call -m --ploidy", ploidy, "-Ou",
+                                 "|", exe_bcftools, "norm -f", fn_ref, "-Oz -o", fn_vcf)
+    system(cmd_variant_calling)
+
+    # index the VCF file
+    system(paste(exe_bcftools, "index", fn_vcf))
+
+    # extract SNPs
+    system(paste(exe_bcftools, "view -V indels -i 'QUAL>=30'", fn_vcf, "-Oz -o", gsub(".vcf.gz", ".snps.vcf.gz", fn_vcf)))
+    system(paste(exe_bcftools, "index", gsub(".vcf.gz", ".snps.vcf.gz", fn_vcf)))
+}
+
+# function: call consensus sequence from VCF file
+f_call_consensus <- function(fn_ref, fn_bed, fn_vcf, fn_consensus, exe_bcftools) {
+    cmd_call_consensus <- paste(exe_bcftools, "consensus",
+                                "-f", fn_ref,
+                                "-m", fn_bed,
+                                "-o", fn_consensus,
+                                fn_vcf)
+    system(cmd_call_consensus)
+}
+
+# function: run IQ-TREE2
+f_iqtree2 <- function(fn_fasta, thread, exe_iqtree2) {
+    cmd_iqtree2 <- paste(exe_iqtree2,
+                         "-s", fn_fasta,
+                         "-T", thread.
+                         "-B 1000")
+    system(cmd_iqtree2)
+}

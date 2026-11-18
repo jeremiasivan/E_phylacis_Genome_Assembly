@@ -46,6 +46,13 @@ params:
   exe_diamond    : "diamond"
   blast_nt_db    : "/home/user/blobtools/core_nt"
   blast_prot_db  : "/home/user/blobtools/uniprot_sprot.dmnd"
+
+  run_ptDNA_validation : TRUE
+  fn_ptDNA_validation  : ""
+  exe_fastp            : "fastp"
+  exe_bedtools         : "bedtools"
+  exe_bcftools         : "bcftools"
+  exe_iqtree           : "iqtree2"
 ---
 
 ```{r, include=FALSE}

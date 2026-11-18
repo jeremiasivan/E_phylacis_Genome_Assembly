@@ -6,7 +6,7 @@ title: "Assembly of Organelle Genomes"
 # create output directories
 outdir_organelle          <- file.path(currentdir, "03_organelle")
 outdir_organelle_db       <- file.path(outdir_organelle, "db")
-outdir_organelle_assembly <- file.path(outdir_organelle, "assembly")
+outdir_organelle_assembly <- file.path(outdir_organelle, "01_assembly")
 
 sapply(c(outdir_organelle_db, outdir_organelle_assembly), function(x) {
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
@@ -35,6 +35,8 @@ for (file in files) {
 }
 ```
 
+## OatK
+
 ```{r oatk}
 # run oatk
 if (!all(file.exists(fn_mtDNA, fn_ptDNA)) || params$redo) {
@@ -44,5 +46,119 @@ if (!all(file.exists(fn_mtDNA, fn_ptDNA)) || params$redo) {
            fn_ref_pltd = file.path(outdir_organelle_db, "magnoliopsida_pltd.fam"),
            thread      = params$thread,
            exe_oatk    = params$exe_oatk)
+}
+```
+
+## ptDNA validation
+
+```{r mapping, eval=params$run_ptDNA_validation, include=params$run_ptDNA_validation}
+# check if metadata file exists
+if (!file.exists(params$fn_ptDNA_validation)) {
+    log4r::error(fn_logger, "Input fn_ptDNA_validation is not found. Skipped.")
+
+} else {
+    # open the metadata file
+    df_metadata <- data.table::fread(params$fn_ptDNA_validation)
+    if (!all(c("sample", "r1_dir", "r2_dir")) %in% colnames(df_metadata)) {
+        log4r::error(fn_logger, "Invalid column names for fn_ptDNA_validation. Skipped.")
+    
+    } else {
+        # create output directory
+        outdir_organelle_validation  <- file.path(outdir_organelle, "02_validation")
+        outdir_validation_shortreads <- file.path(outdir_organelle_validation, "00_filtered_reads")
+        outdir_validation_mapping    <- file.path(outdir_organelle_validation, "01_mapping")
+        outdir_validation_consensus  <- file.path(outdir_organelle_validation, "02_consensus")
+        outdir_validation_tree       <- file.path(outdir_organelle_validation, "03_tree")
+
+        # remove the IRa region (which is identical to IRb)
+        fn_ptDNA_noIRa <- file.path(outdir_organelle_validation, "E_phylacis.pltd.noIRa.fasta")
+        system(paste(params$exe_samtools, "faidx", fn_ptDNA))
+        system(paste(params$exe_samtools, "faidx", fn_ptDNA, "ctg000001c:1-134146 >", fn_ptDNA_noIRa))
+        system(paste(params$exe_samtools, "faidx", fn_ptDNA_noIRa))
+
+        # create doSNOW clusters
+        nwcl <- makeCluster(params$thread)
+        registerDoSNOW(nwcl)
+
+        # iterate over sample
+        foreach (sample = unique(df_metadata$sample)) %dopar% {
+            # subset the data.frame
+            df_subset <- df_metadata[df_metadata$sample == sample, ]
+
+            # check if the sample is duplicated
+            if (nrow(df_subset) != 1) {
+                return (NULL)
+            }
+
+            # run fastp
+            fn_fastq_filtered_r1 <- file.path(outdir_validation_shortreads, paste0(sample, ".R1.fastq.gz"))
+            fn_fastq_filtered_r2 <- file.path(outdir_validation_shortreads, paste0(sample, ".R2.fastq.gz"))
+
+            f_fastp(fn_fastq_r1          = df_subset$r1_dir[1],
+                    fn_fastq_r2          = df_subset$r2_dir[1],
+                    fn_fastq_filtered_r1 = fn_fastq_filtered_r1,
+                    fn_fastq_filtered_r2 = fn_fastq_filtered_r2,
+                    thread               = 1,
+                    exe_fastp            = params$exe_fastp)
+            
+            # run minimap
+            fn_bam <- file.path(outdir_validation_mapping, paste0(sample, ".bam"))
+
+            f_minimap2_shortreads(fn_ref         = fn_ptDNA_noIRa,
+                                  minimap_params = "-ax sr",
+                                  fn_fastq_r1    = fn_fastq_filtered_r1,
+                                  fn_fastq_r2    = fn_fastq_filtered_r2,
+                                  fn_out         = fn_bam,
+                                  thread         = 1,
+                                  exe_minimap2   = params$exe_minimap,
+                                  exe_samtools   = params$exe_samtools,
+                                  exe_bedtools   = params$exe_bedtools)
+            
+            # variant calling
+            fn_vcf_gz <- file.path(outdir_validation_mapping, paste0(sample, ".vcf.gz"))
+
+            f_variant_calling(fn_ref       = fn_ptDNA_noIRa,
+                              fn_bam       = fn_bam,
+                              ploidy       = 1,
+                              fn_vcf       = fn_vcf_gz,
+                              exe_bcftools = params$exe_bcftools)
+            
+            # generate consensus sequences
+            fn_consenus <- file.path(outdir_validation_consensus, paste0(sample, ".fasta"))
+
+            f_call_consensus(fn_ref       = fn_ptDNA_noIRa,
+                             fn_bed       = file.path(outdir_validation_mapping, paste0(sample, ".lowcov.bed")),
+                             fn_vcf       = file.path(outdir_validation_mapping, paste0(sample, ".snps.vcf.gz")),
+                             fn_consensus = fn_consenus,
+                             exe_bcftools = params$exe_bcftools)
+        }
+
+        stopCluster(nwcl)
+
+        # combine all consensus sequences into one file
+        fn_all_ptDNA <- file.path(outdir_validation_tree, "all_ptDNA.fasta")
+
+        # iterate over samples
+        for (sample in c("E_x_phylacis_ref", unique(df_metadata$sample))) {
+            fn_seq <- ifelse(sample=="E_x_phylacis_ref",
+                             fn_ptDNA_noIRa,
+                             file.path(outdir_validation_consensus, paste0(sample, ".fasta")))
+
+            # check if consensus sequence exists
+            if (!file.exists(fn_seq)) {
+                next
+            }
+
+            # update the header
+            seq <- Biostrings::readDNAStringSet(fn_seq)
+            names(seq) <- sample
+            Biostrings::writeXStringSet(seq, filepath=fn_all_ptDNA, append=T)
+        }
+
+        # run IQ-TREE2
+        f_iqtree2(fn_fasta    = fn_all_ptDNA,
+                  thread      = params$thread,
+                  exe_iqtree2 = params$exe_iqtree)
+    }
 }
 ```
