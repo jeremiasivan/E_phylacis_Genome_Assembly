@@ -249,3 +249,16 @@ f_blobtools_export <- function(dir_blobtools, dir_out, prefix, exe_blobtools, ex
                  "-d", dir_blobtools,
                  "-o", file.path(dir_out, paste0(prefix, "_snail.svg"))))
 }
+
+# function: run oatK
+f_oatk <- function(fn_fastq, prefix, fn_ref_mito, fn_ref_pltd, thread, exe_oatk) {
+    cmd_oatk <- paste(exe_oatk,
+                      "-k 1001",
+                      "-c 30",
+                      "-t", thread,
+                      "-p", fn_ref_pltd,
+                      "-m", fn_ref_mito,
+                      "-o", prefix,
+                      fn_fastq)
+    system(cmd_oatk)
+}

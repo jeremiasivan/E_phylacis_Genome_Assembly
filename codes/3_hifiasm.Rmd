@@ -4,20 +4,24 @@ title: "Assembly of Eucalyptus x phylacis ONT Reads"
 
 ```{r, include=FALSE}
 # create output directories
-outdir_hifiasm             <- file.path(currentdir, "02_hifiasm")
-outdir_hifiasm_assembly    <- file.path(outdir_hifiasm, "01_assembly")
-outdir_hifiasm_dotplot     <- file.path(outdir_hifiasm, "02_dotplot")
-outdir_hifiasm_blobtools   <- file.path(outdir_hifiasm, "03_blobtools")
-outdir_blobtools_minimap   <- file.path(outdir_hifiasm_blobtools, "minimap")
-outdir_blobtools_compleasm <- file.path(outdir_hifiasm_blobtools, "compleasm")
-outdir_blobtools_taxdump   <- file.path(outdir_hifiasm_blobtools, "taxdump")
+outdir_hifiasm                 <- file.path(currentdir, "02_hifiasm")
+outdir_hifiasm_assembly        <- file.path(outdir_hifiasm, "01_assembly")
+outdir_hifiasm_corrected_reads <- file.path(outdir_hifiasm_assembly, "corrected_reads")
 
-sapply(c(outdir_hifiasm_assembly, outdir_hifiasm_dotplot, outdir_blobtools_minimap, outdir_blobtools_compleasm, outdir_blobtools_taxdump), function(x) {
+outdir_hifiasm_dotplot         <- file.path(outdir_hifiasm, "02_dotplot")
+outdir_hifiasm_blobtools       <- file.path(outdir_hifiasm, "03_blobtools")
+outdir_blobtools_minimap       <- file.path(outdir_hifiasm_blobtools, "minimap")
+outdir_blobtools_compleasm     <- file.path(outdir_hifiasm_blobtools, "compleasm")
+outdir_blobtools_taxdump       <- file.path(outdir_hifiasm_blobtools, "taxdump")
+
+sapply(c(outdir_hifiasm_corrected_reads, outdir_hifiasm_dotplot, outdir_blobtools_minimap, outdir_blobtools_compleasm, outdir_blobtools_taxdump), function(x) {
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
 # output files
-fn_hap1      <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap1.p_ctg.fa")
-fn_hap2      <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap2.p_ctg.fa")
+fn_hap1_gfa <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap1.p_ctg.gfa")
+fn_hap2_gfa <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap2.p_ctg.gfa")
+fn_hap1     <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap1.p_ctg.fa")
+fn_hap2     <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap2.p_ctg.fa")
 
 # download BUSCO lineage
 dir_busco_lineage <- file.path(currentdir, "busco_lineages")
@@ -42,9 +46,29 @@ if (!all(file.exists(fn_hap1, fn_hap2)) || params$redo) {
               thread         = params$thread,
               exe_hifiasm    = params$exe_hifiasm)
     
+    # convert GFA to FA
+    system(paste(params$exe_gfatools, "gfa2fa", fn_hap1_gfa, ">", fn_hap1))
+    system(paste(params$exe_gfatools, "gfa2fa", fn_hap2_gfa, ">", fn_hap2))
+
     # index both haplotypes
     system(paste(params$exe_samtools, "faidx", fn_hap1))
     system(paste(params$exe_samtools, "faidx", fn_hap2))
+
+    # extract corrected reads
+    setwd(outdir_hifiasm_corrected_reads)
+
+    # link to the previous output files
+    for (suffix in c("ec.bin", "ovlp.source.bin", "ovlp.reverse.bin")) {
+        system(paste("ln -s", file.path("..", paste0("hifiasm_asm.", suffix)), "."))
+    }
+
+    system(paste(params$exe_hifiasm,
+                 "-o hifiasm_asm",
+                 "-t", params$thread,
+                 "--ont --write-ec",
+                 fn_filtered_fastqgz))
+
+    setwd(currentdir)
 }
 
 # generate a dotplot between the two haplotypes

@@ -1,0 +1,48 @@
+---
+title: "Assembly of Organelle Genomes"
+---
+
+```{r, include=FALSE}
+# create output directories
+outdir_organelle          <- file.path(currentdir, "03_organelle")
+outdir_organelle_db       <- file.path(outdir_organelle, "db")
+outdir_organelle_assembly <- file.path(outdir_organelle, "assembly")
+
+sapply(c(outdir_organelle_db, outdir_organelle_assembly), function(x) {
+  if (!dir.exists(x)) { dir.create(x, recursive=T) }})
+
+# output files
+fn_mtDNA <- file.path(outdir_organelle_assembly, "E_phylacis.mito.ctg.fasta")
+fn_ptDNA <- file.path(outdir_organelle_assembly, "E_phylacis.pltd.ctg.fasta")
+
+# download organelle database
+base_url <- "https://raw.githubusercontent.com/c-zhou/OatkDB/main/v20230921"
+files    <- c("magnoliopsida_mito.fam",
+              "magnoliopsida_mito.fam.h3f",
+              "magnoliopsida_mito.fam.h3i",
+              "magnoliopsida_mito.fam.h3m",
+              "magnoliopsida_mito.fam.h3p",
+              "magnoliopsida_pltd.fam",
+              "magnoliopsida_pltd.fam.h3f",
+              "magnoliopsida_pltd.fam.h3i",
+              "magnoliopsida_pltd.fam.h3m",
+              "magnoliopsida_pltd.fam.h3p")
+
+for (file in files) {
+    system(paste("wget",
+                 "-q", file.path(base_url, file),
+                 "-O", file.path(outdir_organelle_db, file)))
+}
+```
+
+```{r oatk}
+# run oatk
+if (!all(file.exists(fn_mtDNA, fn_ptDNA)) || params$redo) {
+    f_oatk(fn_fastq    = file.path(outdir_hifiasm_corrected_reads, "hifiasm_asm.ec.fq"),
+           prefix      = file.path(outdir_organelle_assembly, "E_phylacis"),
+           fn_ref_mito = file.path(outdir_organelle_db, "magnoliopsida_mito.fam"),
+           fn_ref_pltd = file.path(outdir_organelle_db, "magnoliopsida_pltd.fam"),
+           thread      = params$thread,
+           exe_oatk    = params$exe_oatk)
+}
+```
