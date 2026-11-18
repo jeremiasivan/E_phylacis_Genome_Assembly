@@ -318,3 +318,59 @@ f_iqtree2 <- function(fn_fasta, thread, exe_iqtree2) {
                          "-B 1000")
     system(cmd_iqtree2)
 }
+
+# function: read PAF file
+f_read_paf <- function(fn_paf) {
+    # function: extract optional tags from PAF lines
+    f_extract_tag <- function(ls_lines, tag) {
+        pattern <- paste0("\t", stringr::str_escape(tag), "([^\t]*)")
+        stringr::str_match(ls_lines, pattern)[, 2]   # capture group; NA where absent
+    }
+
+    # read the file
+    ls_lines <- readLines(fn_paf)
+
+    # keep lines with the 12 mandatory columns
+    ls_lines <- ls_lines[grepl("^([^\t]*\t){11}", ls_lines)]
+
+    # extract mandatory columns
+    df_paf <- data.table::fread(text=sub("^(([^\t]*\t){11}[^\t]*).*$", "\\1", ls_lines),
+                                sep="\t", header=FALSE, quote="",
+                                col.names=c("qname", "qlen", "qstart", "qend", "strand",
+                                            "tname", "tlen", "tstart", "tend", "nmatch", "alen", "mapq"))
+
+    # extract optional tags
+    df_paf$de <- as.numeric(f_extract_tag(ls_lines, "de:f:"))
+    df_paf$tp <- f_extract_tag(ls_lines, "tp:A:")
+
+    return(df_paf)
+}
+
+# function: calculate total length of overlapping regions
+f_calculate_merged_len <- function(start, end) {
+    # index the start and end positions
+    idx <- order(start, end)
+    start <- start[idx]
+    end <- end[idx]
+
+    # create a new block when the start position is greater than the previous maximum end position
+    block <- cumsum(start > lag(cummax(end), default = -1L))
+
+    # calculate the total length of the merged regions
+    merged_len <- sum(tapply(end, block, max) - tapply(start, block, min))
+    return(merged_len)
+}
+
+# function: extract a list of longer contigs that contain a smaller contig
+f_extract_top_targets <- function(start, end, identity, target, n=5) {
+    str_targets <- tibble(start, end, identity, target) %>%
+                    arrange(start, end, identity, target) %>%
+                    mutate(pos = row_number()) %>%
+                    group_by(target) %>%
+                    summarise(len = sum(end - start), first_pos = min(pos)) %>%
+                    arrange(desc(len), first_pos) %>%
+                    slice_head(n = n) %>%
+                    pull(target) %>%
+                    paste(collapse = ",")
+    return(str_targets)
+}

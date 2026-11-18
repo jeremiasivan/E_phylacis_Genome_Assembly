@@ -98,7 +98,7 @@ if (!file.exists(params$fn_ptDNA_validation)) {
             f_minimap2_shortreads(fn_ref         = fn_ptDNA_noIRa,
                                   minimap_params = "-ax sr",
                                   fn_fastq_r1    = df_subset$r1_dir[1],
-                                  fn_fastq_r2    = df_subset$r1_dir[2],
+                                  fn_fastq_r2    = df_subset$r2_dir[1],
                                   fn_out         = fn_bam,
                                   thread         = 1,
                                   exe_minimap2   = params$exe_minimap,

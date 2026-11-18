@@ -34,7 +34,9 @@ params:
   exe_seqkit      : "seqkit"
 
   # --- Input Files ---------------------------------------------
-  dir_raw_fastqgz : ""
+  dir_raw_fastqgz  : ""
+  fn_ref_decipiens : "GCA_014182575.1.fna"
+  fn_ref_virginea  : "GCA_014182375.1.fna"
 
   # --- Optional Steps ------------------------------------------
   run_kraken2    : FALSE
