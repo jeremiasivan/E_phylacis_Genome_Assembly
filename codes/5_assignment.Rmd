@@ -58,7 +58,7 @@ for (hap in c("hap1", "hap2")) {
                         frac_covered = round(f_calculate_merged_len(qstart, qend) / first(qlen), 3),
                         max_identity = round(max(identity), 3),
                         contained_in = f_extract_top_targets(qstart, qend, identity, tname),
-                        depth_cutoff = (27.5 * frac_covered) + (55 * (1 − frac_covered))
+                        depth_cutoff = 55 - (27.5 / 2) * frac_covered
                     )
     
     # save the list of putative duplicated contigs
@@ -74,7 +74,7 @@ for (hap in c("hap1", "hap2")) {
     f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
                fn_bed       = fn_bed,
                prefix       = file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups")),
-               thread       = params$threads,
+               thread       = params$thread,
                exe_mosdepth = params$exe_mosdepth)
     
     # open the BED file
@@ -83,37 +83,39 @@ for (hap in c("hap1", "hap2")) {
     ls_depth <- setNames(df_depth$depth, df_depth$contig)
 
     # add the depth column to df_contig
-    df_contig$depth  <- unname(ls_depth[contig])
+    df_contig$depth  <- unname(ls_depth[df_contig$contig])
 
     # output variable
     ls_decision <- character(0)
 
     # iterate over contigs from shortest to longest
-    for (i in 1:nrow(df_contig$length)) {
+    for (i in seq_len(df_contig$length)) {
         ctg        <- df_contig$contig[i]
         ctg_depth  <- df_contig$depth[i]
         cutoff     <- df_contig$depth_cutoff[i]
         identity   <- df_contig$max_identity[i]
 
         # make a decision on each contig
-        if (ctg_depth <= cutoff) {
+        if (is.na(ctg_depth)) {
+            ls_decision[ctg] <- "keep (not candidate)"
+        } else if (ctg_depth <= cutoff) {
             ls_decision[ctg] <- "drop (low depth)"
-        } else if (identity >= 99) {
+        } else if (identity >= 0.99) {
             ls_decision[ctg] <- "drop (repeat sequence)"
         } else {
-            ls_decision[ctg] <- "keep "
+            ls_decision[ctg] <- "keep (high coverage)"
         }
     }
 
     # add the decision column to df_frag
-    df_contig$decision <- unname(ls_decision[contig])
+    df_contig$decision <- unname(ls_decision[df_contig$contig])
 
     # save data.frame
     fn_output <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_summary.tsv"))
     data.table::fwrite(df_contig, file=fn_output, sep="\t", quote=FALSE)
 
     # save the list of dropped contigs
-    ls_drop <- df_contig[startsWith(decision, "drop"), contig]
+    ls_drop <- df_contig %>% filter(startsWith(decision, "drop")) %>% pull(contig)
     writeLines(ls_drop, con=file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_drop.txt")))
 }
 ```
@@ -169,16 +171,16 @@ df_frag <- tibble(fragment = ls_pool, length = unname(ls_length[ls_pool])) %>%
               left_join(df_best_aln, by = join_by(fragment == contig)) %>%
               mutate(best_hit     = coalesce(best_hit, "-"),
                      identity     = coalesce(identity, 0),
-                     frac_covered = coalesce(covered, 0),
+                     frac_covered = coalesce(frac_covered, 0),
                      class        = case_when(best_hit == "-" ~ "no-hit",
-                                              identity >= 0.995 & covered >= 0.5 ~ "duplicate",
+                                              identity >= 0.995 & frac_covered >= 0.5 ~ "duplicate",
                                               .default = "own-sequence"))
 
 # check duplicated contigs' depth
 for (hap in c("hap1", "hap2")) {
     # extract haplotype-specific contigs
     hap_prefix <- ifelse(hap=="hap1", "h1", "h2")
-    ls_dups <- df_frag[class == "duplicate" & startsWith(fragment, hap_prefix), fragment]      
+    ls_dups <- df_frag %>% filter(class == "duplicate" & startsWith(fragment, hap_prefix)) %>% pull(fragment)   
     if (length(ls_dups) == 0) {
         next
     }
@@ -192,7 +194,7 @@ for (hap in c("hap1", "hap2")) {
     f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
                fn_bed       = fn_bed,
                prefix       = file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups")),
-               thread       = params$threads,
+               thread       = params$thread,
                exe_mosdepth = params$exe_mosdepth)
 }
 
@@ -209,7 +211,7 @@ df_depth <- data.table::fread(text=c("contig\tstart\tend\tdepth", ls_lines), sep
 ls_depth <- setNames(df_depth$depth, df_depth$contig)
 
 # add the depth column to df_frag
-df_frag$depth <- unname(ls_depth[fragment])
+df_frag$depth <- unname(ls_depth[df_frag$fragment])
 
 # output variable
 ls_decision <- character(0)
@@ -226,7 +228,7 @@ for (i in order(df_frag$length)) {
     # make a decision on each contig
     if (df_frag$class[i] != "duplicate") {
         ls_decision[frag] <- "keep"
-    } else if (is.na(frag_depth) || frag_depth > 41.3) {
+    } else if (is.na(frag_depth) || frag_depth > 41.25) {
         ls_decision[frag] <- "keep (shared sequence)"
     } else if (hit %in% ls_excluded || startsWith(hit_decision, "keep")) {
         ls_decision[frag] <- "drop (single-parent copy)"
@@ -236,7 +238,7 @@ for (i in order(df_frag$length)) {
 }
 
 # add the decision column to df_frag
-df_frag$decision <- unname(ls_decision[fragment])
+df_frag$decision <- unname(ls_decision[df_frag$fragment])
 
 # store all information in one data.frame
 df_out <- df_frag %>%
@@ -244,7 +246,7 @@ df_out <- df_frag %>%
             transmute(fragment,
                       length,
                       best_hit,
-                      identity     = round(identity, 3),
+                      identity     = sprintf("%.1f", depth),
                       frac_covered = round(frac_covered, 3),
                       depth        = if_else(is.na(depth), "-", round(depth, 1)),
                       class,
@@ -252,7 +254,7 @@ df_out <- df_frag %>%
 data.table::fwrite(df_out, file=file.path(outdir_assignment_crosshap_dedup, "summary.txt"), sep="\t", quote=F)
 
 # save the list of dropped contigs
-ls_drop <- df_out[startsWith(decision, "drop"), fragment]
+ls_drop <- df_out %>% filter(startsWith(decision, "drop")) %>% pull(fragment)
 writeLines(ls_drop, con=file.path(outdir_assignment_crosshap_dedup, "drop.txt"))
 ```
 
@@ -268,7 +270,7 @@ if (!all(file.exists(fn_hap1_dedup, fn_hap2_dedup)) || params$redo) {
         ls_organelle <- readLines(file.path(outdir_organelle_assembly, paste0(hap, "_organelle.txt")))
         ls_intradups <- readLines(file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_drop.txt")))
         ls_crossdups <- readLines(file.path(outdir_assignment_crosshap_dedup, "drop.txt"))
-        ls_to_remove <- unique(ls_organelle, ls_intradups, ls_crossdups)
+        ls_to_remove <- unique(c(ls_organelle, ls_intradups, ls_crossdups))
 
         # open the FASTA sequence
         seq <- Biostrings::readBStringSet(file.path(outdir_hifiasm_assembly, paste0("hifiasm_asm.bp.", hap, ".p_ctg.fa")))

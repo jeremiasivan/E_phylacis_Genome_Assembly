@@ -27,6 +27,7 @@ params:
   exe_kmc         : "kmc"
   exe_kmctools    : "kmc_tools"
   exe_minimap     : "minimap2"
+  exe_mosdepth    : "mosdepth"
   exe_nanoplot    : "NanoPlot"
   exe_oatk        : "oatk"
   exe_pigz        : "pigz"
@@ -39,7 +40,7 @@ params:
   fn_ref_virginea  : "GCA_014182375.1.fna"
 
   # --- [Optional] Input Files ----------------------------------
-  fn_dedup_exclude : "/home/user/E_phylacis_Genome_Assembly/files/deduplication/chromosome_scale_contigs.tsv"
+  fn_dedup_exclude : "/home/user/E_phylacis_Genome_Assembly/files/deduplication/chromosome_scale_contigs.txt"
 
   # --- Optional Steps ------------------------------------------
   run_kraken2    : FALSE
@@ -102,6 +103,9 @@ knitr::opts_knit$set(root.dir=currentdir)
 ```
 
 ```{r child = file.path(path.expand(params$codedir), "codes", "4_organelle.Rmd")}
+```
+
+```{r child = file.path(path.expand(params$codedir), "codes", "5_assignment.Rmd")}
 ```
 
 ```{r, include=FALSE}

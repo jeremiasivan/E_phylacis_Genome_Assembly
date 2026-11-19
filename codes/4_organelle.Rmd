@@ -52,6 +52,7 @@ if (!all(file.exists(fn_mtDNA, fn_ptDNA)) || params$redo) {
 ```{r extract-nonnuclear}
 # combine the two organelle genomes
 fn_organelles <- file.path(outdir_organelle_assembly, "both_organelles.fasta")
+unlink(fn_organelles)
 
 for (organelle in c("pltd", "mito")) {
     seq <- Biostrings::readBStringSet(file.path(outdir_organelle_assembly, paste0("E_phylacis.", organelle, ".ctg.fasta")))
@@ -68,11 +69,11 @@ for (hap in c("hap1", "hap2")) {
     # align the haplotype assembly to the organelle genomes
     if (!file.exists(fn_paf) || params$redo) {
         f_minimap2_paf(fn_ref         = fn_organelles,
-                    minimap_params = "-cx asm5",
-                    fn_query       = fn_hap1,
-                    fn_out         = fn_paf,
-                    thread         = params$thread,
-                    exe_minimap2   = params$exe_minimap)
+                       minimap_params = "-cx asm5",
+                       fn_query       = fn_hap,
+                       fn_out         = fn_paf,
+                       thread         = params$thread,
+                       exe_minimap2   = params$exe_minimap)
     }
 
     # open the PAF file
@@ -80,18 +81,18 @@ for (hap in c("hap1", "hap2")) {
 
     # filter alignments
     df_paf <- df_paf %>%
-                filter(aln_len >= 5000 & (matches / aln_len) >= 0.98) %>%
+                filter(aln_len >= 5000 & (nmatch / alen) >= 0.98) %>%
                 mutate(organelle = substr(tname, 1, 4)) %>%
                 group_by(contig = qname) %>%
                 summarise(length       = first(qlen),
-                          frac_covered = round(f_merged_len(qstart, qend) / first(qlen), 3),
+                          frac_covered = round(f_calculate_merged_len(qstart, qend) / first(qlen), 3),
                           organelle    = paste(sort(unique(organelle)), collapse = ",")) %>%
                 arrange(desc(frac_covered))
 
-    data.table::fwrite(df_organelle, fn_out, sep="\t")
+    data.table::fwrite(df_paf, fn_out, sep="\t")
 
     # save the list of dropped contigs
-    ls_organelle <- df_paf$contig[df_paf$frac_covered >= 80]
+    ls_organelle <- df_paf$contig[df_paf$frac_covered >= 0.8]
     writeLines(ls_organelle, con=file.path(outdir_organelle_assembly, paste0(hap, "_organelle.txt")))
 }
 ```
