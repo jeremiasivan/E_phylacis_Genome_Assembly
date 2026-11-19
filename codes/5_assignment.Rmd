@@ -62,12 +62,16 @@ for (hap in c("hap1", "hap2")) {
 
     # keep contigs that are mostly contained in another contig
     df_contig <- df_contig %>%
-                    filter(frac_covered >= 0.8) %>%
+                    mutate(decision = ifelse(frac_covered >= 0.8, "drop", "keep)) %>%
                     arrange(desc(frac_covered))
     
     # save data.frame
-    fn_output <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_dups.tsv"))
+    fn_output <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_summary.tsv"))
     data.table::fwrite(df_contig, file=fn_output, sep="\t", quote=FALSE)
+
+    # save the list of dropped contigs
+    ls_drop <- df_contig$contig[df_contig$frac_covered >= 0.8]
+    writeLines(ls_drop, con=file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".drop.txt")))
 }
 ```
 
@@ -204,9 +208,27 @@ df_out <- df_frag %>%
                       decision)
 data.table::fwrite(df_out, file=file.path(outdir_assignment_crosshap_dedup, "summary.txt"), sep="\t", quote=F)
 
-# save the list of kept and dropped contigs
+# save the list of dropped contigs
 ls_drop <- df_out[startsWith(decision, "drop"), fragment]
 writeLines(ls_drop, con=file.path(outdir_assignment_crosshap_dedup, "drop.txt"))
+```
+
+```{r deduplication}
+# output files
+fn_hap1_dedup <- file.path(outdir_assignment_crosshap_dedup, "hap1.dedup.fa")
+fn_hap2_dedup <- file.path(outdir_assignment_crosshap_dedup, "hap2.dedup.fa")
+
+# iterate over haplotypes
+if (!all(file.exists(fn_hap1_dedup, fn_hap2_dedup)) || params$redo) {
+    for (hap in c("hap1", "hap2")) {
+        system(paste(params$exe_seqkit, "grep -v",
+                    "-f", file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".drop.txt")),
+                    fn_hap1, ">", file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_nointradups.fa"))))
+        system(paste(params$exe_seqkit, "grep -v",
+                    "-f", file.path(outdir_assignment_crosshap_dedup, "drop.txt"),
+                    fn_hap1, ">", file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dedup.fa"))))
+    }
+}
 ```
 
 ```{r assignment}
