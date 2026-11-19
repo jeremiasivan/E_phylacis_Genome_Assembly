@@ -57,21 +57,64 @@ for (hap in c("hap1", "hap2")) {
                         length       = first(qlen),
                         frac_covered = round(f_calculate_merged_len(qstart, qend) / first(qlen), 3),
                         max_identity = round(max(identity), 3),
-                        contained_in = f_extract_top_targets(qstart, qend, identity, tname)
+                        contained_in = f_extract_top_targets(qstart, qend, identity, tname),
+                        depth_cutoff = (27.5 * frac_covered) + (55 * (1 − frac_covered))
                     )
-
-    # keep contigs that are mostly contained in another contig
-    df_contig <- df_contig %>%
-                    mutate(decision = ifelse(frac_covered >= 0.8, "drop", "keep)) %>%
-                    arrange(desc(frac_covered))
     
+    # save the list of putative duplicated contigs
+    ls_length <- setNames(df_contig$length, df_contig$contig)
+    ls_dups   <- df_contig$contig[df_contig$frac_covered >= 0.8]
+
+    # save the contigs as BED file
+    fn_bed <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups.bed"))
+    df_bed <- data.table::data.table(chrom=ls_dups, start=0, end=ls_length[ls_dups])
+    data.table::fwrite(df_bed, file=fn_bed, sep="\t", col.names=FALSE)
+    
+    # calculate the mean read depth of each contig
+    f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
+               fn_bed       = fn_bed,
+               prefix       = file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups")),
+               thread       = params$threads,
+               exe_mosdepth = params$exe_mosdepth)
+    
+    # open the BED file
+    ls_lines <- readLines(gzfile(file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups.regions.bed.gz"))))
+    df_depth <- data.table::fread(text=c("contig\tstart\tend\tdepth", ls_lines), sep="\t", header=TRUE)
+    ls_depth <- setNames(df_depth$depth, df_depth$contig)
+
+    # add the depth column to df_contig
+    df_contig$depth  <- unname(ls_depth[contig])
+
+    # output variable
+    ls_decision <- character(0)
+
+    # iterate over contigs from shortest to longest
+    for (i in 1:nrow(df_contig$length)) {
+        ctg        <- df_contig$contig[i]
+        ctg_depth  <- df_contig$depth[i]
+        cutoff     <- df_contig$depth_cutoff[i]
+        identity   <- df_contig$max_identity[i]
+
+        # make a decision on each contig
+        if (ctg_depth <= cutoff) {
+            ls_decision[ctg] <- "drop (low depth)"
+        } else if (identity >= 99) {
+            ls_decision[ctg] <- "drop (repeat sequence)"
+        } else {
+            ls_decision[ctg] <- "keep "
+        }
+    }
+
+    # add the decision column to df_frag
+    df_contig$decision <- unname(ls_decision[contig])
+
     # save data.frame
     fn_output <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_summary.tsv"))
     data.table::fwrite(df_contig, file=fn_output, sep="\t", quote=FALSE)
 
     # save the list of dropped contigs
-    ls_drop <- df_contig$contig[df_contig$frac_covered >= 0.8]
-    writeLines(ls_drop, con=file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".drop.txt")))
+    ls_drop <- df_contig[startsWith(decision, "drop"), contig]
+    writeLines(ls_drop, con=file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_drop.txt")))
 }
 ```
 
@@ -221,12 +264,16 @@ fn_hap2_dedup <- file.path(outdir_assignment_crosshap_dedup, "hap2.dedup.fa")
 # iterate over haplotypes
 if (!all(file.exists(fn_hap1_dedup, fn_hap2_dedup)) || params$redo) {
     for (hap in c("hap1", "hap2")) {
-        system(paste(params$exe_seqkit, "grep -v",
-                    "-f", file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".drop.txt")),
-                    fn_hap1, ">", file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_nointradups.fa"))))
-        system(paste(params$exe_seqkit, "grep -v",
-                    "-f", file.path(outdir_assignment_crosshap_dedup, "drop.txt"),
-                    fn_hap1, ">", file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dedup.fa"))))
+        # open all contigs to remove
+        ls_organelle <- readLines(file.path(outdir_organelle_assembly, paste0(hap, "_organelle.txt")))
+        ls_intradups <- readLines(file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_drop.txt")))
+        ls_crossdups <- readLines(file.path(outdir_assignment_crosshap_dedup, "drop.txt"))
+        ls_to_remove <- unique(ls_organelle, ls_intradups, ls_crossdups)
+
+        # open the FASTA sequence
+        seq <- Biostrings::readBStringSet(file.path(outdir_hifiasm_assembly, paste0("hifiasm_asm.bp.", hap, ".p_ctg.fa")))
+        seq <- seq[!names(seq) %in% ls_to_remove]
+        Biostrings::writeXStringSet(seq, filepath=file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dedup.fa")))
     }
 }
 ```
