@@ -374,3 +374,14 @@ f_extract_top_targets <- function(start, end, identity, target, n=5) {
                     paste(collapse = ",")
     return(str_targets)
 }
+
+# function: calculate mean read depth over the regions of a BED file
+f_mosdepth <- function(fn_bam, fn_bed, prefix, thread, exe_mosdepth) {
+    cmd_mosdepth <- paste(exe_mosdepth,
+                          "-t", thread,
+                          "--by", fn_bed,
+                          "--no-per-base",
+                          prefix, fn_bam)
+
+    system(cmd_mosdepth)
+}

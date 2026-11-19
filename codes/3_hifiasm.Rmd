@@ -18,10 +18,11 @@ sapply(c(outdir_hifiasm_corrected_reads, outdir_hifiasm_dotplot, outdir_blobtool
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
 # output files
-fn_hap1_gfa <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap1.p_ctg.gfa")
-fn_hap2_gfa <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap2.p_ctg.gfa")
-fn_hap1     <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap1.p_ctg.fa")
-fn_hap2     <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap2.p_ctg.fa")
+fn_hap1_gfa  <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap1.p_ctg.gfa")
+fn_hap2_gfa  <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap2.p_ctg.gfa")
+fn_hap1      <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap1.p_ctg.fa")
+fn_hap2      <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.bp.hap2.p_ctg.fa")
+fn_hap_union <- file.path(outdir_hifiasm_assembly, "hifiasm_asm.union.fa")
 
 # download BUSCO lineage
 dir_busco_lineage <- file.path(currentdir, "busco_lineages")
@@ -85,6 +86,10 @@ cmd_dotplot <- paste("Rscript",
                      "-o", file.path(outdir_hifiasm_dotplot, "hap1_hap2_dotplot"),
                      "-s -t")
 system(cmd_dotplot)
+
+# generate the union
+system(paste("cat", fn_hap1, fn_hap2, ">", fn_hap_union))
+system(paste(params$exe_samtools, "faidx", fn_hap_union))
 ```
 
 ## BlobTools

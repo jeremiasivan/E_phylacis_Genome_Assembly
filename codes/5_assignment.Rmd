@@ -72,7 +72,141 @@ for (hap in c("hap1", "hap2")) {
 ```
 
 ```{r crosshap}
+# open the union index file
+df_fai    <- data.table::fread(paste0(fn_hap_union, ".fai"), header=FALSE, select=1:2, col.names=c("contig", "length"))
+ls_length <- setNames(df_fai$length, df_fai$contig)
+ls_pool   <- df_fai$contig
 
+# extract list of excluded contigs
+ls_excluded <- character(0)
+if (!is.null(params$fn_dedup_exclude) && file.exists(params$fn_dedup_exclude)) {
+    ls_excluded <- readLines(params$fn_dedup_exclude)
+    ls_pool     <- ls_pool[!ls_pool %in% ls_excluded]
+}
+
+# write the list of contigs to a file
+fn_pool_txt <- file.path(outdir_assignment_crosshap_dedup, "pool.txt")
+writeLines(ls_pool, con=fn_pool_txt)
+
+# extract the pooled contigs
+fn_pool_fa <- file.path(outdir_assignment_crosshap_dedup, "pool.fa")
+system(paste(params$exe_seqkit, "grep -f", fn_pool_txt, fn_hap_union, ">", fn_pool_fa))
+
+# map the pooled contigs to the union
+f_minimap2_paf(fn_ref         = fn_hap_union,
+               minimap_params = "-cx asm20",
+               fn_query       = fn_pool_fa,
+               fn_out         = file.path(outdir_assignment_crosshap_dedup, "union.paf"),
+               thread         = params$thread,
+               exe_minimap2   = params$exe_minimap)
+
+# read the PAF file
+df_paf <- f_read_paf(file.path(outdir_assignment_crosshap_dedup, "union.paf"))
+
+# filter contig pairs
+df_paf <- df_paf %>%
+            filter(qname != tname & alen >= 10000) %>%               # exclude self-hits and short alignments
+            mutate(identity = ifelse(is.na(de), nmatch/alen, 1-de))  # calculate pairwise identity
+
+# extract the best hit for each contig
+df_best_aln <- df_paf %>%
+                group_by(contig = qname) %>%
+                mutate(best_hit = tname[which.max(identity)]) %>%
+                filter(tname == best_hit) %>%  
+                summarise(best_hit     = first(best_hit),
+                          identity     = max(identity),
+                          frac_covered = round(f_calculate_merged_len(qstart, qend) / first(qlen), 3))
+
+# classify each contig (including those with no hit)
+df_frag <- tibble(fragment = ls_pool, length = unname(ls_length[ls_pool])) %>%
+              left_join(df_best_aln, by = join_by(fragment == contig)) %>%
+              mutate(best_hit     = coalesce(best_hit, "-"),
+                     identity     = coalesce(identity, 0),
+                     frac_covered = coalesce(covered, 0),
+                     class        = case_when(best_hit == "-" ~ "no-hit",
+                                              identity >= 0.995 & covered >= 0.5 ~ "duplicate",
+                                              .default = "own-sequence"))
+
+# check duplicated contigs' depth
+for (hap in c("hap1", "hap2")) {
+    # extract haplotype-specific contigs
+    hap_prefix <- ifelse(hap=="hap1", "h1", "h2")
+    ls_dups <- df_frag[class == "duplicate" & startsWith(fragment, hap_prefix), fragment]      
+    if (length(ls_dups) == 0) {
+        next
+    }
+
+    # save the contigs as BED file
+    fn_bed <- file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups.bed"))
+    df_bed <- data.table::data.table(chrom=ls_dups, start=0, end=ls_length[ls_dups])
+    data.table::fwrite(df_bed, file=fn_bed, sep="\t", col.names=FALSE)
+    
+    # calculate the mean read depth of each contig
+    f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
+               fn_bed       = fn_bed,
+               prefix       = file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups")),
+               thread       = params$threads,
+               exe_mosdepth = params$exe_mosdepth)
+}
+
+# combine the two files
+fn_all_regions <- file.path(outdir_assignment_crosshap_dedup, "all.dups.regions.bed.gz")
+system(paste("zcat",
+             file.path(outdir_assignment_crosshap_dedup, "hap1.dups.regions.bed.gz"),
+             file.path(outdir_assignment_crosshap_dedup, "hap2.dups.regions.bed.gz"),
+             "2>/dev/null | gzip >", fn_all_regions))
+
+# open the BED file
+ls_lines <- readLines(gzfile(fn_all_regions))
+df_depth <- data.table::fread(text=c("contig\tstart\tend\tdepth", ls_lines), sep="\t", header=TRUE)
+ls_depth <- setNames(df_depth$depth, df_depth$contig)
+
+# add the depth column to df_frag
+df_frag$depth <- unname(ls_depth[fragment])
+
+# output variable
+ls_decision <- character(0)
+
+# iterate over contigs from shortest to longest
+for (i in order(df_frag$length)) {
+    frag         <- df_frag$fragment[i]
+    hit          <- df_frag$best_hit[i]
+    frag_depth   <- df_frag$depth[i]
+
+    # keep undocumented hit as it has to be longer than frag
+    hit_decision <- ifelse (hit %in% names(ls_decision), ls_decision[[hit]], "keep") 
+
+    # make a decision on each contig
+    if (df_frag$class[i] != "duplicate") {
+        ls_decision[frag] <- "keep"
+    } else if (is.na(frag_depth) || frag_depth > 41.3) {
+        ls_decision[frag] <- "keep (shared sequence)"
+    } else if (hit %in% ls_excluded || startsWith(hit_decision, "keep")) {
+        ls_decision[frag] <- "drop (single-parent copy)"
+    } else {
+        ls_decision[frag] <- "keep (only remaining copy)"
+    }
+}
+
+# add the decision column to df_frag
+df_frag$decision <- unname(ls_decision[fragment])
+
+# store all information in one data.frame
+df_out <- df_frag %>%
+            arrange(desc(length)) %>%
+            transmute(fragment,
+                      length,
+                      best_hit,
+                      identity     = round(identity, 3),
+                      frac_covered = round(frac_covered, 3),
+                      depth        = if_else(is.na(depth), "-", round(depth, 1)),
+                      class,
+                      decision)
+data.table::fwrite(df_out, file=file.path(outdir_assignment_crosshap_dedup, "summary.txt"), sep="\t", quote=F)
+
+# save the list of kept and dropped contigs
+ls_drop <- df_out[startsWith(decision, "drop"), fragment]
+writeLines(ls_drop, con=file.path(outdir_assignment_crosshap_dedup, "drop.txt"))
 ```
 
 ```{r assignment}
