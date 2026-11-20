@@ -455,7 +455,7 @@ f_score_paf <- function(fn_paf, min_aln, min_id) {
     df_score <- df_paf %>%
                     group_by(contig = qname) %>%
                     summarise(len      = first(qlen),
-                              aligned  = f_merged_len(qstart, qend) / first(qlen),
+                              aligned  = f_calculate_merged_len(qstart, qend) / first(qlen),
                               identity = 100 * sum(identity * alen) / sum(alen),
                               chrom    = names(which.max(tapply(qend - qstart, tname, sum))),
                               n        = n())
@@ -501,7 +501,7 @@ f_read_blob <- function(fn_blob) {
     ls_header <- tolower(trimws(ls_rows[[1]]))
 
     # extract the column indices
-    col_id     <- grep("index", ls_header)
+    col_id     <- grep("identifiers", ls_header)
     col_gc     <- grep("gc", ls_header)
     col_cov    <- grep("cov", ls_header)
     col_phylum <- grep("phylum", ls_header)

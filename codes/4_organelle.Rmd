@@ -81,7 +81,7 @@ for (hap in c("hap1", "hap2")) {
 
     # filter alignments
     df_paf <- df_paf %>%
-                filter(aln_len >= 5000 & (nmatch / alen) >= 0.98) %>%
+                filter(alen >= 5000 & (nmatch / alen) >= 0.98) %>%
                 mutate(organelle = substr(tname, 1, 4)) %>%
                 group_by(contig = qname) %>%
                 summarise(length       = first(qlen),
