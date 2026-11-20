@@ -417,3 +417,24 @@ f_read_nhmmer_tblout <- function(fn_tblout) {
     
     return(df_hits)
 }
+
+# function: update headers of E. decipiens and E. virginea reference genomes
+f_update_headers <- function(ref_dec, ref_vir, ref_dec_out, ref_vir_out) {
+    # map the original headers to new headers
+    ls_map_decipiens <- c(setNames(sprintf("Chr%02d", 1:11), sprintf("CM0246%02d.1", 9:19)),  "CM024632.1" = "Pltd")
+    ls_map_virginea  <- c(setNames(sprintf("Chr%02d", 1:11), sprintf("CM0245%02d.1", 14:24)), "CM024525.1" = "Pltd")
+
+    # update the headers of E. decipiens
+    seq          <- Biostrings::readBStringSet(ref_dec)                 # open the file
+    ls_accession <- sub("\\s.*$", "", names(seq))                       # extract the chromosome names
+    is_mapped    <- ls_accession %in% names(ls_map_decipiens)
+    names(seq)[is_mapped] <- ls_map_decipiens[ls_accession[is_mapped]]  # update the chromosome names
+    Biostrings::writeXStringSet(seq, filepath=ref_dec_out)
+
+    # update the headers of E. virginea
+    seq          <- Biostrings::readBStringSet(ref_vir)                 # open the file
+    ls_accession <- sub("\\s.*$", "", names(seq))                       # extract the chromosome names
+    is_mapped    <- ls_accession %in% names(ls_map_virginea)
+    names(seq)[is_mapped] <- ls_map_virginea[ls_accession[is_mapped]]   # update the chromosome names
+    Biostrings::writeXStringSet(seq, filepath=ref_vir_out)
+}
