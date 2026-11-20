@@ -438,3 +438,133 @@ f_update_headers <- function(ref_dec, ref_vir, ref_dec_out, ref_vir_out) {
     names(seq)[is_mapped] <- ls_map_virginea[ls_accession[is_mapped]]   # update the chromosome names
     Biostrings::writeXStringSet(seq, filepath=ref_vir_out)
 }
+
+# function: score every contig of a PAF against one reference
+f_score_paf <- function(fn_paf, min_aln, min_id) {
+    # read the PAF file
+    df_paf <- f_read_paf(fn_paf)
+
+    # filter alignments
+    df_paf <- df_paf %>%
+                filter(is.na(tp) | tp == "P") %>%                                # keep primary alignments only
+                filter(alen >= min_aln) %>%                                      # keep alignments >= min_aln
+                mutate(identity = ifelse(is.na(de), nmatch / alen, 1 - de)) %>%  # calculate identity
+                filter(identity >= min_id)                                       # keep alignments with identity >= min_id
+
+    # summarise per contig
+    df_score <- df_paf %>%
+                    group_by(contig = qname) %>%
+                    summarise(len      = first(qlen),
+                              aligned  = f_merged_len(qstart, qend) / first(qlen),
+                              identity = 100 * sum(identity * alen) / sum(alen),
+                              chrom    = names(which.max(tapply(qend - qstart, tname, sum))),
+                              n        = n())
+
+    return(df_score)
+}
+
+# function: find the best partners of every hap1 and hap2 contig
+f_partners <- function(fn_paf) {
+    # read the PAF file
+    df_paf <- f_read_paf(fn_paf)
+
+    # calculate the total alignment length of every pair
+    df_sum <- df_paf %>%
+        group_by(qname, tname) %>%
+        summarise(alen = sum(alen))
+
+    # extract the best partner of every hap1 contig, and of every hap2 contig
+    df_best_h1 <- df_sum %>%
+        group_by(contig = qname) %>%
+        summarise(partner = tname[which.max(alen)])
+    df_best_h2 <- df_sum %>%
+        group_by(contig = tname) %>%
+        summarise(partner = qname[which.max(alen)])
+
+    # extract contig lengths
+    df_len_h1 <- df_paf %>% distinct(contig = qname, len = qlen)
+    df_len_h2 <- df_paf %>% distinct(contig = tname, len = tlen)
+
+    return(list(best_h1 = df_best_h1, best_h2 = df_best_h2, len_h1 = df_len_h1, len_h2 = df_len_h2))
+}
+
+# function: read blobtools stats table
+f_read_blob <- function(fn_blob) {
+    # create an empty data.table with the expected columns
+    df_blob <- data.table::data.table(contig=character(), gc=numeric(), cov=numeric(), phylum=character())
+    if (is.null(fn_blob)) {
+        return(df_blob)
+    }
+
+    # extract individual rows and headers
+    ls_rows <- strsplit(readLines(fn_blob), "\t", fixed=TRUE)
+    ls_header <- tolower(trimws(ls_rows[[1]]))
+
+    # extract the column indices
+    col_id     <- grep("index", ls_header)
+    col_gc     <- grep("gc", ls_header)
+    col_cov    <- grep("cov", ls_header)
+    col_phylum <- grep("phylum", ls_header)
+
+    # remove the header row
+    ls_rows <- ls_rows[-1]
+
+    # keep only rows with the expected number of columns and a valid contig name
+    ls_rows <- ls_rows[sapply(ls_rows, function(row) {
+        length(row) >= max(col_id, col_gc, col_cov, col_phylum) && tolower(trimws(row[1])) != "index"
+    })]
+
+    # return an empty data.table if no valid rows are found
+    if (length(ls_rows) == 0) {
+        return(df_blob)
+    }
+
+    # store the entries as data.frame
+    df_blob <- data.table::data.table(contig = trimws(sapply(ls_rows, `[`, col_id)),
+                                      gc     = as.numeric(sapply(ls_rows, `[`, col_gc)),
+                                      cov    = as.numeric(sapply(ls_rows, `[`, col_cov)),
+                                      phylum = trimws(sapply(ls_rows, `[`, col_phylum)))
+
+    # skip rows with invalid GC or coverage
+    df_blob <- df_blob[!is.na(gc) & !is.na(cov)]
+
+    # convert GC to percentage
+    df_blob$gc <- ifelse(df_blob$gc <= 1, df_blob$gc * 100, df_blob$gc)
+
+    return(df_blob)
+}
+
+# function: call the parent of each contig
+f_call <- function(dec_aligned, vir_aligned, dec_id, vir_id, min_aligned, margin) {
+  case_when(is.na(dec_aligned) & is.na(vir_aligned)                                ~ "no alignment",
+            pmax(coalesce(dec_aligned, 0), coalesce(vir_aligned, 0)) < min_aligned ~ "unaligned",
+            is.na(dec_aligned)                                                     ~ "virginea",
+            is.na(vir_aligned)                                                     ~ "decipiens",
+            dec_id - vir_id >= margin                                              ~ "decipiens",
+            dec_id - vir_id <= -margin                                             ~ "virginea",
+            .default                                                               = "ambiguous")
+}
+
+# function: interleave hap1 and hap2 contigs
+f_interleave_partners <- function(df_rows, hap_name) {
+    # extract the rows of the specified haplotype
+    df_self <- df_rows %>%
+                   filter(hap == hap_name) %>%
+                   arrange(desc(length)) %>%
+                   mutate(pair = row_number(), role = 1)
+
+    # extract the rows of the partner haplotype
+    df_partner <- df_self %>%
+                      filter(partner != "-") %>%
+                      select(pair, partner_name = partner) %>%
+                      inner_join(df_rows %>% filter(hap != hap_name), by = join_by(partner_name == contig)) %>%
+                      mutate(contig = paste0("\u2192 ", partner_name), role = 2) %>%   # "→ h2tg000123l"
+                      select(-partner_name)
+
+    # bind the two data.frames together
+    df_out <- bind_rows(df_self, df_partner) %>%
+                  arrange(pair, role) %>%
+                  select(-pair, -role)
+
+    return(df_out)
+}
