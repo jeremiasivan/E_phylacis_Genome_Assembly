@@ -568,3 +568,43 @@ f_interleave_partners <- function(df_rows, hap_name) {
 
     return(df_out)
 }
+
+# function: count k-mers
+f_meryl_count <- function(ls_fn_reads, fn_db, k, thread, exe_meryl) {
+    cmd_meryl <- paste(exe_meryl,
+                       paste0("k=", k),
+                       "count",
+                       paste0("threads=", thread),
+                       "output", fn_db,
+                       paste(ls_fn_reads, collapse = " "))
+    system(cmd_meryl)
+}
+
+# function: filter k-mers
+f_meryl_filter <- function(fn_db, fn_out, filter_params, thread, exe_meryl) {
+    cmd_meryl <- paste(exe_meryl,
+                       paste0("threads=", thread),
+                       filter_params,
+                       "output", fn_out,
+                       fn_db)
+    system(cmd_meryl)
+}
+
+# function: compare two k-mer databases
+f_meryl_operator <- function(operator, fn_db1, fn_db2, fn_out, thread, exe_meryl) {
+    cmd_meryl <- paste(exe_meryl, operator,
+                       paste0("threads=", thread),
+                       fn_db1, fn_db2,
+                       "output", fn_out)
+    system(cmd_meryl)
+}
+
+# function: run Merqury trio
+f_merqury_trio <- function(db_reads, db_ref1, db_ref2, hap1, hap2, prefix, exe_merqury) {
+    cmd_merqury <- paste(exe_merqury,
+                         db_reads,
+                         db_ref1, db_ref2,
+                         hap1, hap2,
+                         prefix)
+    system(cmd_merqury)
+}

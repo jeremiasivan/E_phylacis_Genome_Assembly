@@ -339,6 +339,10 @@ if (!all(file.exists(fn_hap1_dedup, fn_hap2_dedup)) || params$redo) {
         Biostrings::writeXStringSet(seq, filepath=file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dedup.fa")))
     }
 }
+
+# index the FASTA file
+system(paste(params$exe_samtools, "faidx", fn_hap1_dedup))
+system(paste(params$exe_samtools, "faidx", fn_hap2_dedup))
 ```
 
 ```{r dv-scoring}
@@ -454,10 +458,13 @@ for (hap in names(ls_haps)) {
     df_rows <- rbind(df_rows, df_hap)
 }
 
+# save the data.frame
+data.table::fwrite(df_rows, file=file.path(outdir_assignment_dvscoring, "dv_scoring.tsv"), sep = "\t", quote = FALSE)
+
 # extract the partner of each contig
 for (hap in c("hap1", "hap2")) {
     data.table::fwrite(f_interleave_partners(df_rows, hap),
-                       file.path(outdir_assignment_dvscoring, paste0("dv_scoring_", hap, ".tsv")), sep = "\t", quote = FALSE)
+                       file=file.path(outdir_assignment_dvscoring, paste0("dv_scoring_", hap, ".tsv")), sep = "\t", quote = FALSE)
 }
 ```
 
@@ -532,10 +539,206 @@ df_out <- df_pairs %>%
 data.table::fwrite(df_out, file = fn_pairs, sep = "\t", quote = FALSE)
 ```
 
-```{r dv-kmer}
+```{r meryl}
+# set k-mer size
+k_meryl <- 31
 
+# store the fastq files as list
+ls_parent_reads <- list(decipiens = c(params$fn_ref_decipiens_r1, params$fn_ref_decipiens_r2),
+                        virginea  = c(params$fn_ref_virginea_r1,  params$fn_ref_virginea_r2))
+
+# change working directory
+setwd(outdir_assignment_dvkmers)
+
+# iterate over parental lineages
+for (parent in names(ls_parent_reads)) {
+    # output databases
+    fn_db       <- paste0("E_", parent, ".meryl")
+    fn_filtered <- paste0("E_", parent, ".filtered.meryl")
+
+    # count k-mers
+    if (!dir.exists(fn_db)) {
+        f_meryl_count(ls_fn_reads = ls_parent_reads[[parent]],
+                      fn_db       = fn_db,
+                      k           = k_meryl,
+                      thread      = params$thread,
+                      exe_meryl   = params$exe_meryl)
+    }
+
+    # filter k-mers
+    if (!dir.exists(fn_filtered)) {
+        f_meryl_filter(fn_db         = fn_db,
+                       fn_out        = fn_filtered,
+                       filter_params = "greater-than 5",
+                       thread        = params$thread,,
+                       exe_meryl     = params$exe_meryl) 
+    }
+}
+
+# extract unique k-mers
+fn_dec_filtered <- "E_decipiens.filtered.meryl"
+fn_vir_filtered <- "E_virginea.filtered.meryl"
+
+f_meryl_operator(operator  = "difference",
+                 fn_db1    = fn_dec_filtered,
+                 fn_db2    = fn_vir_filtered,
+                 fn_out    = "E_decipiens.unique.meryl",
+                 thread    = params$thread,
+                 exe_meryl = params$exe_meryl)
+f_meryl_operator(operator  = "difference",
+                 fn_db1    = fn_vir_filtered,
+                 fn_db2    = fn_dec_filtered,
+                 fn_out    = "E_virginea.unique.meryl",
+                 thread    = params$thread,
+                 exe_meryl = params$exe_meryl)
+f_meryl_operator(operator  = "symmetric-difference",
+                 fn_db1    = fn_dec_filtered,
+                 fn_db2    = fn_vir_filtered,
+                 fn_out    = "ref_union.unique.meryl",
+                 thread    = params$thread,
+                 exe_meryl = params$exe_meryl)
+
+# count k-mers for E. x phylacis
+if (!dir.exists("E_phylacis.meryl")) {
+    f_meryl_count(ls_fn_reads = fn_filtered_fastqgz,
+                  fn_db       = "E_phylacis.meryl",
+                  k           = k_meryl,
+                  thread      = params$thread,
+                  exe_meryl   = params$exe_meryl)
+}
+
+# filter k-mers
+if (!dir.exists("E_phylacis.filtered.meryl)) {
+    f_meryl_filter(fn_db         = "E_phylacis.meryl",
+                   fn_out        = "E_phylacis.filtered.meryl",
+                   filter_params = "greater-than 9",
+                   thread        = params$thread,,
+                   exe_meryl     = params$exe_meryl) 
+}
+
+# create a new directory
+dir.create(file.path(outdir_assignment_dvkmers, "merqury_out"), recursive=T)
+setwd(file.path(outdir_assignment_dvkmers, "merqury_out"))
+
+# run merqury.sh
+f_merqury_trio(db_reads    = file.path(outdir_assignment_dvkmers, "E_phylacis.filtered.meryl"),
+               db_ref1     = file.path(outdir_assignment_dvkmers, "E_virginea.unique.meryl"),
+               db_ref2     = file.path(outdir_assignment_dvkmers, "E_decipiens.unique.meryl"),
+               hap1        = fn_hap1_dedup,
+               hap2        = fn_hap2_dedup,
+               prefix      = "E_phylacis_trio",
+               exe_merqury = params$exe_merqury) 
+
+# change working directory
+setwd(currentdir)
 ```
 
-```{r final}
 
+```{r final}
+# output files
+fn_ctg_parent <- file.path(outdir_assignment_final, "parent_of_contig.tsv")
+
+# set the opposite parent
+ls_opposite <- c(virginea="decipiens", decipiens="virginea")
+
+# extract the parent of every chromosome-scale contig
+if (is.null(params$fn_chr_parent) || file.exists(params$fn_chr_parent)) {
+    log4r::error(fn_logger, "fn_chr_parent is not found. Exited.")
+    knitr::knit_exit()
+}
+
+# open the file
+df_chr_parent <- data.table::fread(params$fn_chr_parent, header=FALSE)
+
+# extract the length of each contig
+ls_length <- c()
+for (hap in c(fn_hap1_dedup, fn_hap2_dedup)) {
+    df_fai <- data.table::fread(paste0(hap, ".fai"), sep="\t", header=FALSE, select=1:2, col.names=c("contig", "length"))
+    ls_length <- c(ls_length, setNames(df_fai$length, df_fai$contig))
+}
+
+# extract the best partner of every contig from the pairs table (both directions)
+df_pairs <- data.table::fread(fn_pairs, sep = "\t", colClasses = list(character = c("h1", "h2")))
+df_best  <- bind_rows(df_pairs %>% transmute(contig = h1, partner = h2, cov = h1_cov, identity),
+                      df_pairs %>% transmute(contig = h2, partner = h1, cov = h2_cov, identity)) %>%
+                group_by(contig) %>%
+                slice_max(cov, n = 1, with_ties = FALSE)
+
+# intrinsic evidence: delta ID call
+df_dvscore <- data.table::fread(file.path(outdir_assignment_dvscoring, "dv_scoring.tsv"), sep = "\t", colClasses = "character") %>%
+ls_dv_call <- df_dvscore %>%
+                filter(call %in% names(ls_opposite)) %>%
+                select(contig, call) %>%
+                deframe()
+
+# intrinsic evidence: hapmer majority
+df_hapmers <- data.table::fread(file.path(outdir_assignment_dvkmers, "merqury_out", "E_phylacis_trio.hapmers.count"), sep = "\t")
+ls_hap_call <- df_hapmers %>%
+                    transmute(contig  = Contig,
+                              n_vir   = as.numeric(.data[["E_virginea.unique"]]),
+                              n_dec   = as.numeric(.data[["E_decipies.unique"]]),
+                              n_total = n_vir + n_dec,
+                              call    = case_when(n_total >= 1000 & n_vir / n_total >= 0.9 ~ "virginea",
+                                                  n_total >= 1000 & n_dec / n_total >= 0.9 ~ "decipiens")) %>%
+                    filter(!is.na(call)) %>%
+                    select(contig, call) %>%
+                    deframe()
+
+# store everything together in a data.frame
+df_contig <- tibble(contig = names(ls_length), length = as.numeric(ls_length)) %>%
+                mutate(hap = if_else(startsWith(contig, "h1"), "hap1", "hap2")) %>%
+                arrange(hap, desc(length))
+
+# add best partner, coverage and identity
+df_contig <- df_contig %>%
+                left_join(df_best %>% rename(partner_cov = cov, partner_identity = identity), by = "contig") %>%
+                mutate(partner          = coalesce(partner, "-"),
+                       partner_cov      = coalesce(partner_cov, 0),
+                       partner_identity = coalesce(partner_identity, 0))
+
+# add intrinsic evidences
+df_contig <- df_contig %>%
+                mutate(dv_call     = unname(ls_dv_call[contig]),
+                       hapmer_call = unname(ls_hap_call[contig]),
+                       intrinsic   = case_when(is.na(dv_call)                              ~ hapmer_call,
+                                               is.na(hapmer_call) | hapmer_call == dv_call ~ dv_call,
+                                               .default = NA_character_))
+
+# apply the rules in priority order
+df_contig <- df_contig %>%
+                mutate(partner_parent = unname(ls_parent_chrom[partner]),
+                       rule   = case_when(contig %in% names(ls_parent_chrom)           ~ "chromosome",
+                                          !is.na(partner_parent) & partner_cov >= 0.5  ~ "group",
+                                          !is.na(intrinsic)                            ~ "intrinsic",
+                                          .default = "unassigned"),
+                       parent = case_when(rule == "chromosome" ~ unname(ls_parent_chrom[contig]),
+                                          rule == "group"      ~ unname(ls_opposite[partner_parent]),
+                                          rule == "intrinsic"  ~ intrinsic,
+                                          .default = "unassigned"),
+                       check  = case_when(rule != "group"          ~ "-",
+                                          is.na(intrinsic)         ~ "no intrinsic call",
+                                          intrinsic == parent      ~ "consistent",
+                                          partner_identity >= 0.99 ~ "identical-filler",
+                                          .default = "CHECK")) %>%
+                select(-partner_parent)
+
+# save the data.frame
+df_out <- data.table::data.table(contig           = df_contig$contig,
+                                 hap              = df_contig$hap,
+                                 length           = df_contig$length,
+                                 rule             = df_contig$rule,
+                                 parent           = df_contig$parent,
+                                 partner          = df_contig$partner,
+                                 partner_cov      = sprintf("%.2f", df_contig$partner_cov),
+                                 partner_identity = sprintf("%.3f", df_contig$partner_identity),
+                                 dv_call          = ifelse(is.na(df_contig$dv_call), "-", df_contig$dv_call),
+                                 hapmer_call      = ifelse(is.na(df_contig$hapmer_call), "-", df_contig$hapmer_call),
+                                 check            = df_contig$check)
+
+data.table::fwrite(df_out, file=fn_ctg_parent, sep="\t", quote=FALSE)
+
+# save a list of contigs per parent
+for (parent in c("virginea", "decipiens", "unassigned")) {
+  writeLines(df_contig$contig[df_contig$parent == parent], con=file.path(outdir_assignment_final, paste0(parent, "_contig.txt")))
+}
 ```

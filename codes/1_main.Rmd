@@ -23,6 +23,8 @@ params:
   exe_bgzip       : "bgzip"
   exe_chopper     : "chopper"
   exe_compleasm   : "compleasm"
+  exe_merqury     : "merqury.sh"
+  exe_meryl       : "meryl"
   exe_genomescope : "GenomeScope2"
   exe_gfatools    : "gfatools"
   exe_hifiasm     : "hifiasm"
@@ -39,13 +41,19 @@ params:
 
   # --- Input Files ---------------------------------------------
   dir_raw_fastqgz  : ""
-  fn_ref_decipiens : "GCA_014182575.1.fna"
-  fn_ref_virginea  : "GCA_014182375.1.fna"
+
+  fn_ref_decipiens    : "GCA_014182575.1.fna"
+  fn_ref_virginea     : "GCA_014182375.1.fna"
+  fn_ref_decipiens_r1 : "SRR25119757_R1.fastq.gz"
+  fn_ref_decipiens_r2 : "SRR25119757_R2.fastq.gz"
+  fn_ref_virginea_r1  : "SRR25119786_R1.fastq.gz"
+  fn_ref_virginea_r2  : "SRR25119786_R2.fastq.gz"
   
   fn_rrna_db       : "/home/user/anaconda3/envs/ephylacis/lib/barrnap/db/euk.hmm"
 
   # --- [Optional] Input Files ----------------------------------
-  fn_dedup_exclude : "/home/user/E_phylacis_Genome_Assembly/files/deduplication/chromosome_scale_contigs.txt"
+  fn_dedup_exclude : "/home/user/E_phylacis_Genome_Assembly/files/assignment/chromosome_scale_contigs.txt"
+  fn_chr_parent    : "/home/user/E_phylacis_Genome_Assembly/files/assignment/parent_of_chromosome.tsv"
 
   # --- Optional Steps ------------------------------------------
   run_kraken2    : FALSE
