@@ -94,7 +94,7 @@ system(paste(params$exe_samtools, "faidx", fn_hap_union))
 
 ## BlobTools
 
-```{r blobtools, eval=params$run_blobtools, include=params$run_blobtools}
+```{r blobtools}
 # output directories
 dir_hap1_btk <- file.path(outdir_hifiasm_blobtools, "hap1_btk")
 dir_hap2_btk <- file.path(outdir_hifiasm_blobtools, "hap2_btk")
@@ -232,17 +232,17 @@ if (any(file.exists(paste0(params$blast_nt_db, ".nal"), params$blast_prot_db))) 
                              dir_taxdump   = outdir_blobtools_taxdump,
                              exe_blobtools = params$exe_blobtools)
     }
-
-    # export output
-    f_blobtools_export(dir_blobtools = dir_hap1_btk,
-                       dir_out       = outdir_hifiasm_blobtools,
-                       prefix        = "hap1",
-                       exe_blobtools = params$exe_blobtools,
-                       exe_blobtk    = params$exe_blobtk)
-    f_blobtools_export(dir_blobtools = dir_hap2_btk,
-                       dir_out       = outdir_hifiasm_blobtools,
-                       prefix        = "hap2",
-                       exe_blobtools = params$exe_blobtools,
-                       exe_blobtk    = params$exe_blobtk)
 }
+
+# export output
+f_blobtools_export(dir_blobtools = dir_hap1_btk,
+                   dir_out       = outdir_hifiasm_blobtools,
+                   prefix        = "hap1",
+                   exe_blobtools = params$exe_blobtools,
+                   exe_blobtk    = params$exe_blobtk)
+f_blobtools_export(dir_blobtools = dir_hap2_btk,
+                   dir_out       = outdir_hifiasm_blobtools,
+                   prefix        = "hap2",
+                   exe_blobtools = params$exe_blobtools,
+                   exe_blobtk    = params$exe_blobtk)
 ```

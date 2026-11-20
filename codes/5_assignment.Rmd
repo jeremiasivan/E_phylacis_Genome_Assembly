@@ -8,10 +8,11 @@ outdir_assignment                 <- file.path(currentdir, "04_assignment")
 outdir_assignment_refs            <- file.path(outdir_assignment, "00_refs")
 outdir_assignment_intrahap_dedup  <- file.path(outdir_assignment, "01_intrahap_dedup")
 outdir_assignment_crosshap_dedup  <- file.path(outdir_assignment, "02_crosshap_dedup")
-outdir_assignment_assignment      <- file.path(outdir_assignment, "03_assignment")
-outdir_assignment_final           <- file.path(outdir_assignment, "04_final")
+outdir_assignment_rrna            <- file.path(outdir_assignment, "03_rrna")
+outdir_assignment_assignment      <- file.path(outdir_assignment, "04_assignment")
+outdir_assignment_final           <- file.path(outdir_assignment, "05_final")
 
-sapply(c(outdir_assignment_refs, outdir_assignment_intrahap_dedup, outdir_assignment_crosshap_dedup, outdir_assignment_assignment, outdir_assignment_final), function(x) {
+sapply(c(outdir_assignment_refs, outdir_assignment_intrahap_dedup, outdir_assignment_crosshap_dedup, outdir_assignment_rrna, outdir_assignment_assignment, outdir_assignment_final), function(x) {
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
 # check if both parental reference genomes exist
@@ -100,8 +101,6 @@ for (hap in c("hap1", "hap2")) {
             ls_decision[ctg] <- "keep (not candidate)"
         } else if (ctg_depth <= cutoff) {
             ls_decision[ctg] <- "drop (low depth)"
-        } else if (identity >= 0.99) {
-            ls_decision[ctg] <- "drop (repeat sequence)"
         } else {
             ls_decision[ctg] <- "keep (high coverage)"
         }
@@ -114,7 +113,10 @@ for (hap in c("hap1", "hap2")) {
     fn_output <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_summary.tsv"))
     data.table::fwrite(df_contig, file=fn_output, sep="\t", quote=FALSE)
 
-    # save the list of dropped contigs
+    # save the list of kept and dropped contigs
+    ls_keep <- df_contig %>% filter(startsWith(decision, "keep")) %>% pull(contig)
+    writeLines(ls_keep, con=file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_keep.txt")))
+
     ls_drop <- df_contig %>% filter(startsWith(decision, "drop")) %>% pull(contig)
     writeLines(ls_drop, con=file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_drop.txt")))
 }
@@ -258,6 +260,55 @@ ls_drop <- df_out %>% filter(startsWith(decision, "drop")) %>% pull(fragment)
 writeLines(ls_drop, con=file.path(outdir_assignment_crosshap_dedup, "drop.txt"))
 ```
 
+```{rrna}
+# list of rRNA genes
+ls_genes   <- c("18S_rRNA", "5_8S_rRNA", "28S_rRNA", "5S_rRNA")
+
+# run nhmmer
+if (!is.null(params$fn_rrna_db) && file.exists(params$fn_rrna_db)) {
+    for (hap in c("hap1", "hap2")) {
+        # input files
+        fn_hap     <- file.path(outdir_hifiasm_assembly, paste0("hifiasm_asm.bp.", hap, ".p_ctg.fa"))
+        fn_wrapped <- file.path(outdir_assignment_rrna, paste0(hap, ".wrapped.fa"))
+        fn_tblout  <- file.path(outdir_assignment_rrna, paste0(hap, "_rrna.tbl"))
+        fn_out     <- file.path(outdir_assignment_rrna, paste0(hap, "_rrna_counts.tsv"))
+    
+        # line-wrapped copy of the assembly for nhmmer
+        if (!file.exists(fn_wrapped) || params$redo) {
+            system(paste(params$exe_seqkit, "seq -w 60", fn_hap, ">", fn_wrapped))
+        }
+
+        # search for rRNA genes
+        if (!file.exists(fn_tblout) || params$redo) {
+            f_nhmmer(fn_hmm     : params$fn_rrna_db,
+                     fn_fasta   : fn_wrapped,
+                     fn_tblout  : fn_tblout,
+                     thread     : params$thread,
+                     exe_nhmmer : params$exe_nhmmer) 
+        }
+
+        # read the rRNA table
+        df_rrna <- f_read_nhmmer_tblout(fn_tblout) %>%
+                        count(contig = target, gene = query) %>%
+                        complete(contig, gene = ls_genes, fill = list(n = 0)) %>% 
+                        pivot_wider(names_from = gene, values_from = n) %>%
+                        select(contig, all_of(ls_genes)) %>%
+                        mutate(total = rowSums(across(all_of(ls_genes)))) %>%
+                        arrange(desc(total)) %>%
+                        filter(total >= 5)
+
+        data.table::fwrite(df_rrna, file=fn_out, sep="\t", quote=F)
+
+        # open the list of contigs with high coverage
+        ls_keep <- readLines(file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_keep.txt")))
+
+        # drop duplicate rRNA genes
+        ls_drop <- df_rrna$contig[df_rrna$contig %in% ls_keep]
+        writeLines(ls_drop, con=file.path(outdir_assignment_rrna, paste0(hap, "_drop.txt")))
+    }
+}
+```
+
 ```{r deduplication}
 # output files
 fn_hap1_dedup <- file.path(outdir_assignment_crosshap_dedup, "hap1.dedup.fa")
@@ -271,6 +322,13 @@ if (!all(file.exists(fn_hap1_dedup, fn_hap2_dedup)) || params$redo) {
         ls_intradups <- readLines(file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_drop.txt")))
         ls_crossdups <- readLines(file.path(outdir_assignment_crosshap_dedup, "drop.txt"))
         ls_to_remove <- unique(c(ls_organelle, ls_intradups, ls_crossdups))
+
+        # open rRNA genes
+        fn_rrna_drop <- file.path(outdir_assignment_rrna, paste0(hap, "_drop.txt"))
+        if (file.exists(fn_rrna_drop)) {
+            ls_rrna      <- readLines(fn_rrna_drop)
+            ls_to_remove <- unique(c(ls_to_remove, ls_rrna))
+        }
 
         # open the FASTA sequence
         seq <- Biostrings::readBStringSet(file.path(outdir_hifiasm_assembly, paste0("hifiasm_asm.bp.", hap, ".p_ctg.fa")))

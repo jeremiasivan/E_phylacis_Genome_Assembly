@@ -385,3 +385,35 @@ f_mosdepth <- function(fn_bam, fn_bed, prefix, thread, exe_mosdepth) {
 
     system(cmd_mosdepth)
 }
+
+# function: run nhmmer
+f_nhmmer <- function(fn_hmm, fn_fasta, fn_tblout, thread, exe_nhmmer) {
+    cmd_nhmmer <- paste(exe_nhmmer,
+                        "--rna --cpu", thread,
+                        "--noali -E 1e-6 --w_length 8000",
+                        "--tblout", fn_tblout,
+                        "-o /dev/null",
+                        fn_hmm, fn_fasta)
+    system(cmd_nhmmer)
+}
+
+# function: read an nhmmer --tblout file
+f_read_nhmmer_tblout <- function(fn_tblout) {
+    # define the column names
+    ls_cols   <- c("target", "target_acc", "query", "query_acc", "hmm_from", "hmm_to", "ali_from", "ali_to",
+                   "env_from", "env_to", "sq_len", "strand", "evalue", "score", "bias")
+
+    # open the file
+    ls_lines  <- readLines(fn_tblout)
+
+    # skip commented lines
+    ls_lines  <- ls_lines[!startsWith(ls_lines, "#")]
+
+    # split each line based on whitespace
+    ls_fields <- strsplit(trimws(ls_lines), "\\s+")
+
+    # convert lines into data.frame and update headers
+    df_hits <- as_tibble(do.call(rbind, lapply(ls_fields, `[`, seq_along(ls_cols))), .name_repair = ~ ls_cols)
+    
+    return(df_hits)
+}
