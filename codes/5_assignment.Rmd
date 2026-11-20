@@ -10,9 +10,12 @@ outdir_assignment_intrahap_dedup  <- file.path(outdir_assignment, "01_intrahap_d
 outdir_assignment_crosshap_dedup  <- file.path(outdir_assignment, "02_crosshap_dedup")
 outdir_assignment_rrna            <- file.path(outdir_assignment, "03_rrna")
 outdir_assignment_assignment      <- file.path(outdir_assignment, "04_assignment")
+outdir_assignment_dvscoring       <- file.path(outdir_assignment_assignment, "01_dvscoring")
+outdir_assignment_paircov         <- file.path(outdir_assignment_assignment, "02_pair_cov")
+outdir_assignment_dvkmers         <- file.path(outdir_assignment_assignment, "03_dvkmers")
 outdir_assignment_final           <- file.path(outdir_assignment, "05_final")
 
-sapply(c(outdir_assignment_refs, outdir_assignment_intrahap_dedup, outdir_assignment_crosshap_dedup, outdir_assignment_rrna, outdir_assignment_assignment, outdir_assignment_final), function(x) {
+sapply(c(outdir_assignment_refs, outdir_assignment_intrahap_dedup, outdir_assignment_crosshap_dedup, outdir_assignment_rrna, outdir_assignment_dvscoring, outdir_assignment_paircov, outdir_assignment_dvkmers, outdir_assignment_final), function(x) {
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
 # check if both parental reference genomes exist
@@ -338,21 +341,21 @@ if (!all(file.exists(fn_hap1_dedup, fn_hap2_dedup)) || params$redo) {
 }
 ```
 
-```{r dv_scoring}
+```{r dv-scoring}
 # update the headers of reference genomes
-fn_ref_dec <- file.path(outdir_assignment_assignment, "ref_dec.fna")
-fn_ref_vir <- file.path(outdir_assignment_assignment, "ref_vir.fna")
+fn_ref_dec <- file.path(outdir_assignment_dvscoring, "ref_dec.fna")
+fn_ref_vir <- file.path(outdir_assignment_dvscoring, "ref_vir.fna")
 f_update_headers(ref_dec     = params$fn_ref_decipiens,
                  ref_vir     = params$fn_ref_virginea,
                  ref_dec_out = fn_ref_dec,
                  ref_vir_out = fn_ref_vir)
 
 # output files
-fn_hap1_hap2_paf <- file.path(outdir_assignment_assignment, "hap1_hap2.paf")
-fn_hap1_dec_paf  <- file.path(outdir_assignment_assignment, "hap1_dec.paf")
-fn_hap1_vir_paf  <- file.path(outdir_assignment_assignment, "hap1_vir.paf")
-fn_hap2_dec_paf  <- file.path(outdir_assignment_assignment, "hap2_dec.paf")
-fn_hap2_vir_paf  <- file.path(outdir_assignment_assignment, "hap2_vir.paf")
+fn_hap1_hap2_paf <- file.path(outdir_assignment_dvscoring, "hap1_hap2.paf")
+fn_hap1_dec_paf  <- file.path(outdir_assignment_dvscoring, "hap1_dec.paf")
+fn_hap1_vir_paf  <- file.path(outdir_assignment_dvscoring, "hap1_vir.paf")
+fn_hap2_dec_paf  <- file.path(outdir_assignment_dvscoring, "hap2_dec.paf")
+fn_hap2_vir_paf  <- file.path(outdir_assignment_dvscoring, "hap2_vir.paf")
 
 # run minimap2
 f_minimap2_paf(fn_ref         = fn_hap1_dedup,
@@ -368,7 +371,7 @@ if (!all(file.exists(fn_hap1_dec_paf, fn_hap1_vir_paf, fn_hap2_dec_paf, fn_hap2_
             f_minimap2_paf(fn_ref         = ifelse(ref == "dec", fn_ref_dec, fn_ref_vir),
                            minimap_params = "-cx asm20 -N 1000 --secondary=no",
                            fn_query       = ifelse(hap == "hap1", fn_hap1_dedup, fn_hap2_dedup),
-                           fn_out         = file.path(outdir_assignment_assignment, paste0(hap, "_", ref, ".paf")),
+                           fn_out         = file.path(outdir_assignment_dvscoring, paste0(hap, "_", ref, ".paf")),
                            thread         = params$thread,
                            exe_minimap2   = params$exe_minimap)
         }
@@ -454,8 +457,83 @@ for (hap in names(ls_haps)) {
 # extract the partner of each contig
 for (hap in c("hap1", "hap2")) {
     data.table::fwrite(f_interleave_partners(df_rows, hap),
-                       file.path(outdir_assignment_assignment, paste0("dv_scoring_", hap, ".tsv")), sep = "\t", quote = FALSE)
+                       file.path(outdir_assignment_dvscoring, paste0("dv_scoring_", hap, ".tsv")), sep = "\t", quote = FALSE)
 }
+```
+
+```{r pair-cov}
+# output files
+fn_hap2_hap1_paf <- file.path(outdir_assignment_paircov, "hap1_hap2.paf")
+fn_union_paf     <- file.path(outdir_assignment_paircov, "union.paf")
+fn_pairs         <- file.path(outdir_assignment_paircov, "summary.tsv")
+
+# run minimap2
+f_minimap2_paf(fn_ref         = fn_hap2_dedup,
+               minimap_params = "-cx asm20 -N 1000 --secondary=no",
+               fn_query       = fn_hap1_dedup,
+               fn_out         = fn_hap2_hap1_paf,
+               thread         = params$thread,
+               exe_minimap2   = params$exe_minimap)
+
+# swap the positions of hap1 and hap2
+ls_fields <- strsplit(readLines(fn_hap2_hap1_paf), "\t", fixed = TRUE)
+ls_fields <- vapply(ls_fields, function(f) {
+                f[c(1:4, 6:9)] <- f[c(6:9, 1:4)]
+                paste(f, collapse = "\t")
+             })
+
+# combine with the previous run
+writeLines(c(readLines(fn_hap1_hap2_paf), ls_fields), con=fn_union_paf)
+rm(ls_fields)
+
+# calculate the coverage of each pair
+df_paf <- f_read_paf(fn_union_paf)
+
+# filter alignments
+df_pairs <- df_paf %>%
+                filter(alen >= 10000) %>%
+                mutate(identity = ifelse(is.na(de), nmatch / alen, 1 - de)) %>%
+                filter(identity >= 0.9) %>%
+                group_by(h1 = qname, h2 = tname) %>%
+                summarise(
+                    h1_len     = first(qlen),
+                    h2_len     = first(tlen),
+                    n_aln      = n(),
+                    aligned_bp = sum(alen),
+                    identity   = sum(identity * alen) / sum(alen),
+                    h1_cov     = f_merged_len(qstart, qend) / h1_len,
+                    h2_cov     = f_merged_len(tstart, tend) / h2_len
+                )
+
+# extract the best partner of each contig
+df_pairs <- df_pairs %>%
+                group_by(h1) %>% mutate(best_for_h1 = h2 == h2[which.max(h1_cov)]) %>%
+                group_by(h2) %>% mutate(best_for_h2 = h1 == h1[which.max(h2_cov)]) %>%
+                ungroup() %>%
+                mutate(reciprocal = best_for_h1 & best_for_h2)
+
+# save the data.frame                
+df_out <- df_pairs %>%
+    arrange(desc(aligned_bp)) %>%
+    filter(h1_cov >= 0.01 | h2_cov >= 0.01) %>%
+    transmute(h1,
+              h1_len,
+              h2,
+              h2_len,
+              n_aln,
+              aligned_bp,
+              identity    = sprintf("%.4f", identity),
+              h1_cov      = sprintf("%.3f", h1_cov),
+              h2_cov      = sprintf("%.3f", h2_cov),
+              best_for_h1 = best_for_h1,
+              best_for_h2 = best_for_h2,
+              reciprocal  = reciprocal)
+
+data.table::fwrite(df_out, file = fn_pairs, sep = "\t", quote = FALSE)
+```
+
+```{r dv-kmer}
+
 ```
 
 ```{r final}
