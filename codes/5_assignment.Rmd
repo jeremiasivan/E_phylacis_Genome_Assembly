@@ -83,13 +83,11 @@ for (hap in c("hap1", "hap2")) {
     # calculate the mean read depth of each contig
     fn_regions_bed <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups.regions.bed.gz"))
 
-    if (!file.exists(fn_regions_bed) || params$redo) {
-        f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
-                   fn_bed       = fn_bed,
-                   prefix       = file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups")),
-                   thread       = params$thread,
-                   exe_mosdepth = params$exe_mosdepth)
-    }
+    f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
+               fn_bed       = fn_bed,
+               prefix       = file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups")),
+               thread       = params$thread,
+               exe_mosdepth = params$exe_mosdepth)
     
     # open the BED file
     ls_lines <- readLines(gzfile(fn_regions_bed))
@@ -209,15 +207,11 @@ for (hap in c("hap1", "hap2")) {
     data.table::fwrite(df_bed, file=fn_bed, sep="\t", col.names=FALSE)
     
     # calculate the mean read depth of each contig
-    fn_regions_bed <- file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups.regions.bed.gz"))
-
-    if (!file.exists(fn_regions_bed) || params$redo) {
-        f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
-                   fn_bed       = fn_bed,
-                   prefix       = file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups")),
-                   thread       = params$thread,
-                   exe_mosdepth = params$exe_mosdepth)
-    }
+    f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
+               fn_bed       = fn_bed,
+               prefix       = file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups")),
+               thread       = params$thread,
+               exe_mosdepth = params$exe_mosdepth)
 }
 
 # combine the two files
@@ -705,7 +699,7 @@ df_best  <- bind_rows(df_pairs %>% transmute(contig = h1, partner = h2, cov = h1
                 ungroup()
 
 # intrinsic evidence: delta ID call
-df_dvscore <- data.table::fread(file.path(outdir_assignment_dvscoring, "dv_scoring.tsv"), sep = "\t", colClasses = "character")
+df_dvscore <- data.table::fread(file.path(outdir_assignment_dvscoring, "dv_scoring.tsv"), sep = "\t", colClasses = list(character = c("contig", "partner")))
 ls_dv_call <- df_dvscore %>%
                 filter(call %in% names(ls_opposite)) %>%
                 select(contig, call) %>%
@@ -744,6 +738,10 @@ df_contig <- df_contig %>%
                                                is.na(hapmer_call) | hapmer_call == dv_call ~ dv_call,
                                                .default = NA_character_))
 
+# add the parental chromosomes
+df_contig <- df_contig %>%
+                left_join(df_dvscore %>% select(contig, dec_chrom, vir_chrom), by = "contig")
+
 # apply the rules in priority order
 df_contig <- df_contig %>%
                 mutate(partner_parent = unname(ls_parent_chrom[partner]),
@@ -754,13 +752,13 @@ df_contig <- df_contig %>%
                        parent = case_when(rule == "chromosome" ~ unname(ls_parent_chrom[contig]),
                                           rule == "group"      ~ unname(ls_opposite[partner_parent]),
                                           rule == "intrinsic"  ~ intrinsic,
-                                          .default = "unassigned"),
-                       check  = case_when(rule != "group"          ~ "-",
-                                          is.na(intrinsic)         ~ "no intrinsic call",
-                                          intrinsic == parent      ~ "consistent",
-                                          partner_identity >= 0.99 ~ "identical-filler",
-                                          .default = "CHECK")) %>%
+                                          .default = "unassigned")) %>%
                 select(-partner_parent)
+
+# add the evidences
+df_contig <- f_check_all(df_contig   = df_contig,
+                         ls_opposite = ls_opposite,
+                         min_cov     = 0.5)
 
 # save the data.frame
 df_out <- data.table::data.table(contig           = df_contig$contig,
@@ -773,9 +771,22 @@ df_out <- data.table::data.table(contig           = df_contig$contig,
                                  partner_identity = sprintf("%.3f", df_contig$partner_identity),
                                  dv_call          = ifelse(is.na(df_contig$dv_call), "-", df_contig$dv_call),
                                  hapmer_call      = ifelse(is.na(df_contig$hapmer_call), "-", df_contig$hapmer_call),
-                                 check            = df_contig$check)
+                                 check            = df_contig$check,
+                                 check_intrinsic  = df_contig$check_intrinsic,
+                                 check_pair       = df_contig$check_pair,
+                                 check_synteny    = df_contig$check_synteny,)
 
 data.table::fwrite(df_out, file=fn_ctg_parent, sep="\t", quote=FALSE)
+
+# save the interleaved format
+df_evidence <- f_evidence_table(df_contig  = f_contig,
+                                df_dvscore = df_dvscore,
+                                df_hapmers = df_hapmers)
+for (hap in c("hap1", "hap2")) {
+    data.table::fwrite(f_interleave_partners(df_evidence, hap),
+                       file.path(outdir_assignment_final, paste0("evidence_", hap, ".tsv")),
+                       sep = "\t", quote = FALSE, bom = TRUE, scipen = 50, na = "-")
+}
 
 # save a list of contigs per parent
 for (parent in c("virginea", "decipiens", "unassigned")) {

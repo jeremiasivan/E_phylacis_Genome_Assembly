@@ -608,3 +608,63 @@ f_merqury_trio <- function(db_reads, db_ref1, db_ref2, hap1, hap2, prefix, exe_m
                          prefix)
     system(cmd_merqury)
 }
+
+# function: check every contig's assignment against the evidence that was not used to make it
+f_check_all <- function(df_contig, ls_opposite, min_cov) {
+    # create a vector that maps every contig to its assigned parent
+    ls_parent_assigned <- setNames(df_contig$parent, df_contig$contig)
+
+    # check every contig's assignment
+    df_contig %>%
+        mutate(partner_parent = unname(ls_parent_assigned[partner]),
+               partner_parent = if_else(partner_parent %in% "unassigned", NA_character_, partner_parent),
+               check_intrinsic = case_when(
+                   rule == "unassigned"                                                ~ "-",
+                   !is.na(dv_call) & !is.na(hapmer_call) & dv_call != hapmer_call      ~ "conflicting evidence",
+                   is.na(intrinsic)                                                    ~ "no intrinsic call",
+                   rule == "intrinsic" | intrinsic == parent                           ~ "consistent",
+                   rule == "group" & partner_identity >= 0.99                          ~ "identical-filler",
+                   .default = "CHECK"),
+               check_pair = case_when(
+                   rule == "unassigned"                                                ~ "-",
+                   is.na(partner_parent) | partner_cov < min_cov                       ~ "no partner evidence",
+                   rule == "group" | partner_parent == unname(ls_opposite[parent])     ~ "consistent",
+                   .default = "CHECK"),
+               check_synteny = case_when(
+                   is.na(dec_chrom) | is.na(vir_chrom) | dec_chrom == "-" | vir_chrom == "-"        ~ "no synteny evidence",
+                   dec_chrom == vir_chrom                                                           ~ "consistent",
+                   .default = "CHECK"),
+               check = case_when(
+                   rule == "unassigned"                                                              ~ "-",
+                   check_intrinsic == "CHECK" | check_pair == "CHECK" | check_synteny == "CHECK"     ~ "CHECK",
+                   check_intrinsic == "conflicting evidence"                                         ~ "conflicting evidence",
+                   check_intrinsic == "identical-filler"                                             ~ "identical-filler",
+                   .default = "consistent")) %>%
+        select(-partner_parent)
+}
+
+# function: one row per contig with every piece of evidence behind its assignment
+f_evidence_table <- function(df_contig, df_dvscore, df_hapmers) {
+    # create a data.frame with the DV scores
+    df_dv <- df_dvscore %>%
+        transmute(contig, dec_id, vir_id, delta = round(dec_id - vir_id, 3), dec_aligned, vir_aligned, gc, cov, phylum)
+
+    # create a data.frame with the k-mer counts
+    df_kmer <- df_hapmers %>%
+        transmute(contig        = contig,
+                  kmer_vir      = as.numeric(.data[["E_virginea.unique"]]),
+                  kmer_dec      = as.numeric(.data[["E_decipiens.unique"]]),
+                  kmer_total    = kmer_vir + kmer_dec,
+                  kmer_frac_vir = if_else(kmer_total > 0, round(kmer_vir / kmer_total, 3), NA_real_),
+                  kmer_frac_dec = if_else(kmer_total > 0, round(kmer_dec / kmer_total, 3), NA_real_))
+
+    # combine all the evidence into one table
+    df_contig %>%
+        left_join(df_dv,   by = "contig") %>%
+        left_join(df_kmer, by = "contig") %>%
+        select(contig, hap, length, parent, rule, check, check_intrinsic, check_pair, check_synteny,
+               partner, partner_cov, partner_identity,
+               dv_call, dec_id, vir_id, delta, dec_aligned, vir_aligned, dec_chrom, vir_chrom,
+               hapmer_call, kmer_vir, kmer_dec, kmer_total, kmer_frac_vir, kmer_frac_dec,
+               intrinsic, gc, cov, phylum)
+}

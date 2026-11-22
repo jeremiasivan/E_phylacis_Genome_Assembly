@@ -70,6 +70,8 @@ params:
   exe_bedtools         : "bedtools"
   exe_bcftools         : "bcftools"
   exe_iqtree           : "iqtree2"
+
+  run_scaffolding      : TRUE
 ---
 
 ```{r, include=FALSE}
@@ -116,6 +118,9 @@ knitr::opts_knit$set(root.dir=currentdir)
 ```
 
 ```{r child = file.path(path.expand(params$codedir), "codes", "5_assignment.Rmd")}
+```
+
+```{r child = file.path(path.expand(params$codedir), "codes", "6_sacffolding.Rmd"), eval=params$run_scaffolding, include=params$run_scaffolding}
 ```
 
 ```{r, include=FALSE}
