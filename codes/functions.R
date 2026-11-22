@@ -651,7 +651,7 @@ f_evidence_table <- function(df_contig, df_dvscore, df_hapmers) {
 
     # create a data.frame with the k-mer counts
     df_kmer <- df_hapmers %>%
-        transmute(contig        = contig,
+        transmute(contig        = Contig,
                   kmer_vir      = as.numeric(.data[["E_virginea.unique"]]),
                   kmer_dec      = as.numeric(.data[["E_decipiens.unique"]]),
                   kmer_total    = kmer_vir + kmer_dec,

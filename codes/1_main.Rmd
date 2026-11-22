@@ -120,7 +120,7 @@ knitr::opts_knit$set(root.dir=currentdir)
 ```{r child = file.path(path.expand(params$codedir), "codes", "5_assignment.Rmd")}
 ```
 
-```{r child = file.path(path.expand(params$codedir), "codes", "6_sacffolding.Rmd"), eval=params$run_scaffolding, include=params$run_scaffolding}
+```{r child = file.path(path.expand(params$codedir), "codes", "6_scaffolding.Rmd"), eval=params$run_scaffolding, include=params$run_scaffolding}
 ```
 
 ```{r, include=FALSE}

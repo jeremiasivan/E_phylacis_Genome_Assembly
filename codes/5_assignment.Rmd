@@ -194,15 +194,18 @@ df_frag <- tibble(fragment = ls_pool, length = unname(ls_length[ls_pool])) %>%
 
 # check duplicated contigs' depth
 for (hap in c("hap1", "hap2")) {
+    # output file
+    fn_bed <- file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups.bed"))
+
     # extract haplotype-specific contigs
     hap_prefix <- ifelse(hap=="hap1", "h1", "h2")
     ls_dups <- df_frag %>% filter(class == "duplicate" & startsWith(fragment, hap_prefix)) %>% pull(fragment)   
     if (length(ls_dups) == 0) {
+        unlink(fn_bed)
         next
     }
 
     # save the contigs as BED file
-    fn_bed <- file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups.bed"))
     df_bed <- data.table::data.table(chrom=ls_dups, start=0, end=ls_length[ls_dups])
     data.table::fwrite(df_bed, file=fn_bed, sep="\t", col.names=FALSE)
     
@@ -774,12 +777,12 @@ df_out <- data.table::data.table(contig           = df_contig$contig,
                                  check            = df_contig$check,
                                  check_intrinsic  = df_contig$check_intrinsic,
                                  check_pair       = df_contig$check_pair,
-                                 check_synteny    = df_contig$check_synteny,)
+                                 check_synteny    = df_contig$check_synteny)
 
 data.table::fwrite(df_out, file=fn_ctg_parent, sep="\t", quote=FALSE)
 
 # save the interleaved format
-df_evidence <- f_evidence_table(df_contig  = f_contig,
+df_evidence <- f_evidence_table(df_contig  = df_contig,
                                 df_dvscore = df_dvscore,
                                 df_hapmers = df_hapmers)
 for (hap in c("hap1", "hap2")) {
