@@ -56,22 +56,29 @@ params:
   fn_chr_parent    : "/home/user/E_phylacis_Genome_Assembly/files/assignment/parent_of_chromosome.tsv"
 
   # --- Optional Steps ------------------------------------------
+  # run Kraken2
   run_kraken2    : FALSE
   exe_kraken2    : "kraken2"
   dir_kraken2_db : "/home/user/kraken2_db/pluspfp"
 
+  # add BLAST hits for BlobTools
   exe_blastn     : "blastn"
   exe_diamond    : "diamond"
   blast_nt_db    : "/home/user/blobtools/core_nt"
   blast_prot_db  : "/home/user/blobtools/uniprot_sprot.dmnd"
 
+  # map short reads to inferred ptDNA and infer a tree
   run_ptDNA_validation : TRUE
   fn_ptDNA_validation  : ""
   exe_bedtools         : "bedtools"
   exe_bcftools         : "bcftools"
   exe_iqtree           : "iqtree2"
 
+  # run scaffolding for each haplotype
   run_scaffolding      : TRUE
+  scaffold_reference   : "GCA_037349125.1.fna"
+  scaffold_chr_map     : "/home/user/E_phylacis_Genome_Assembly/files/assignment/E_regnans_chr_map.tsv"
+  exe_ragtag           : "ragtag.py"
 ---
 
 ```{r, include=FALSE}

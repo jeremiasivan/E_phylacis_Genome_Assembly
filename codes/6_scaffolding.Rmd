@@ -2,3 +2,75 @@
 title: "Scaffolding"
 ---
 
+```{r, include=FALSE}
+# create output directories
+outdir_scaffolding               <- file.path(currentdir, "05_scaffolding")
+outdir_scaffolding_uniontoref    <- file.path(outdir_scaffolding, "01_union_to_ref")
+outdir_scaffolding_haptounion    <- file.path(outdir_scaffolding, "02_hap_to_union")
+outdir_haptounion_virlike        <- file.path(outdir_scaffolding_haptounion, "virlike")
+outdir_haptounion_declike        <- file.path(outdir_scaffolding_haptounion, "declike")
+outdir_scaffolding_binning       <- file.path(outdir_scaffolding, "03_binning")
+outdir_scaffolding_visualisation <- file.path(outdir_scaffolding, "04_visualisation")
+
+sapply(c(outdir_scaffolding_uniontoref, outdir_haptounion_virlike, outdir_haptounion_declike, outdir_scaffolding_binning, outdir_scaffolding_visualisation), function(x) {
+  if (!dir.exists(x)) { dir.create(x, recursive=T) }})
+
+# check if scaffolding reference genome exists
+if (!file.exists(params$scaffold_reference)) {
+    log4r::error(fn_logger, "Scaffolding reference genomes is not found. Exited.")
+    knitr::knit_exit()
+}
+
+# check if scaffolding metadata file exists
+if (!file.exists(params$scaffold_chr_map)) {
+    log4r::error(fn_logger, "Scaffolding metadata file is not found. Exited.")
+    knitr::knit_exit()
+}
+```
+
+```{r ref-update}
+# open the metadata file
+df_scaffold_metadata <- data.table::fread(params$scaffold_chr_map)
+
+# extract the respective chromosomes and update the names
+seq <- Biostrings::readBStringSet(params$scaffold_reference)
+seq <- seq[names(seq) %in% df_scaffold_metadata$old_id]
+names(seq) <- sapply(names(seq), function(x) { df_scaffold_metadata$new_id[df_scaffold_metadata$old_id==x] })
+
+# save the updated reference genome
+fn_scaffold_ref <- file.path(outdir_scaffolding_uniontoref, paste0(tools::file_path_sans_ext(basename(params$scaffold_reference)), ".fna"))
+Biostrings::writeXStringSet(seq, filepath=fn_scaffold_ref)
+```
+
+```{union-to-ref}
+# combine the two haplotypes
+fn_dedup_union <- file.path(outdir_scaffolding_uniontoref, "union.dedup.fa")
+system(paste("cat", fn_hap1_dedup, fn_hap2_dedup, ">", fn_dedup_union))
+
+# run RagTag
+f_ragtag(fn_ref            = fn_scaffold_ref,
+         fn_query          = fn_dedup_union,
+         ragtag_parameters = "--mm2-params '-x asm20' -f 25000 -u -a 0.2",
+         dir_out           = outdir_scaffolding_uniontoref,
+         thread            = params$thread,
+         exe_ragtag        = params$exe_ragtag)
+
+# extract the respective chromosomes
+system(paste(params$exe_seqkit, "grep -r -p '^Chr'", file.path(outdir_scaffolding_uniontoref, "ragtag.scaffold.fasta"), ">", file.path(outdir_scaffolding_uniontoref, "union_chr.fa")))
+```
+
+```{hap-to-union}
+f_ragtag(fn_ref            = file.path(outdir_scaffolding_uniontoref, "union_chr.fa"),
+         fn_query          = file.path(outdir_assignment_final, "virginea_contig.txt"),
+         ragtag_parameters = "--mm2-params '-x asm20' -f 25000 -u -a 0.2",
+         dir_out           = outdir_haptounion_virlike,
+         thread            = params$thread,
+         exe_ragtag        = params$exe_ragtag)
+
+f_ragtag(fn_ref            = file.path(outdir_scaffolding_uniontoref, "union_chr.fa"),
+         fn_query          = file.path(outdir_assignment_final, "decipiens_contig.txt"),
+         ragtag_parameters = "--mm2-params '-x asm20' -f 25000 -u -a 0.2",
+         dir_out           = outdir_haptounion_declike,
+         thread            = params$thread,
+         exe_ragtag        = params$exe_ragtag)
+```

@@ -647,7 +647,15 @@ f_check_all <- function(df_contig, ls_opposite, min_cov) {
 f_evidence_table <- function(df_contig, df_dvscore, df_hapmers) {
     # create a data.frame with the DV scores
     df_dv <- df_dvscore %>%
-        transmute(contig, dec_id, vir_id, delta = round(dec_id - vir_id, 3), dec_aligned, vir_aligned, gc, cov, phylum)
+                transmute(contig,
+                          dec_id,
+                          vir_id,
+                          delta = round(dec_id - vir_id, 3),
+                          dec_aligned,
+                          vir_aligned,
+                          gc,
+                          cov,
+                          phylum)
 
     # create a data.frame with the k-mer counts
     df_kmer <- df_hapmers %>%
@@ -667,4 +675,15 @@ f_evidence_table <- function(df_contig, df_dvscore, df_hapmers) {
                dv_call, dec_id, vir_id, delta, dec_aligned, vir_aligned, dec_chrom, vir_chrom,
                hapmer_call, kmer_vir, kmer_dec, kmer_total, kmer_frac_vir, kmer_frac_dec,
                intrinsic, gc, cov, phylum)
+}
+
+# function: run RagTag
+f_ragtag <- function(fn_ref, fn_query, ragtag_parameters, dir_out, thread, exe_ragtag) {
+    cmd_ragtag <- paste(exe_ragtag, "scaffold",
+                        "-t", thread,
+                        ragtag_parameters,
+                        "-o", dir_out,
+                        fn_ref,
+                        fn_query)
+    system(cmd_ragtag)
 }
