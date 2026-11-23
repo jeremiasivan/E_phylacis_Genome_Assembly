@@ -678,12 +678,256 @@ f_evidence_table <- function(df_contig, df_dvscore, df_hapmers) {
 }
 
 # function: run RagTag
-f_ragtag <- function(fn_ref, fn_query, ragtag_parameters, dir_out, thread, exe_ragtag) {
+f_ragtag <- function(fn_ref, fn_query, ragtag_params, dir_out, thread, exe_ragtag, fn_exclude = NULL) {
     cmd_ragtag <- paste(exe_ragtag, "scaffold",
                         "-t", thread,
-                        ragtag_parameters,
-                        "-o", dir_out,
-                        fn_ref,
-                        fn_query)
+                        ragtag_params)
+    
+    if (!is.null(fn_exclude)) {
+        cmd_ragtag <- paste(cmd_ragtag, "-j", fn_exclude)
+    }
+
+    cmd_ragtag <- paste(cmd_ragtag, "-o", dir_out, fn_ref, fn_query)
     system(cmd_ragtag)
+}
+
+# function: chromosome binning
+f_chromosome_bins <- function(df_assign, df_dvscore, parent, col_chrom, min_aligned) {
+    # extract the reference chromosome of every contig
+    df_ref <- df_dvscore %>%
+                  transmute(contig,
+                            ref_chrom = .data[[col_chrom]],
+                            aligned = .data[[sub("chrom", "aligned", col_chrom)]],
+                            same_chrom = dec_chrom == vir_chrom)
+
+    # filter invalid contigs
+    ls_ref_chrom <- df_ref %>%
+                        filter(!is.na(ref_chrom), ref_chrom != "-") %>%
+                        select(contig, ref_chrom) %>%
+                        deframe()
+
+    # extract the contigs per chromosome
+    df_bins <- df_assign %>%
+                    left_join(df_ref %>% select(contig, aligned, same_chrom), by = "contig") %>%
+                    filter(parent == !!parent,
+                           rule %in% c("chromosome", "group") | (rule == "intrinsic" & aligned >= min_aligned & same_chrom)) %>%   
+                    mutate(anchor    = if_else(rule == "group", partner, contig),
+                           ref_chrom = unname(ls_ref_chrom[anchor])) %>%
+                    filter(!is.na(ref_chrom)) %>%
+                    select(ref_chrom, contig, rule, anchor) %>%
+                    arrange(ref_chrom, desc(rule == "chromosome"), contig)
+
+    return(df_bins)
+}
+
+# function: scaffold contigs per chromosome
+f_scaffold_pass <- function(df_bins, fn_asm, fn_ref, dir_iter, ragtag_params, fn_exclude, thread, exe_seqkit, exe_ragtag) {
+    # create the output directories
+    dir_bins <- file.path(dir_iter, "bins")
+    dir_scaf <- file.path(dir_iter, "scaffolds")
+    for (dir in c(dir_bins, dir_scaf)) {
+        dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+    }
+
+    # output files
+    fn_chromosomes <- file.path(dir_iter, "chromosomes.fa")
+    fn_unplaced    <- file.path(dir_iter, "unplaced.fa")
+    fn_agp         <- file.path(dir_iter, "combined.agp")
+
+    # create empty output files
+    file.create(fn_chromosomes, fn_unplaced, fn_agp)
+
+    # iterate over chromosomes
+    for (chr in sort(unique(df_bins$ref_chrom))) {
+        # input files
+        fn_ids   <- file.path(dir_bins, paste0(chr, ".txt"))
+        fn_query <- file.path(dir_bins, paste0(chr, ".fa"))
+        fn_chref <- file.path(dir_bins, paste0(chr, ".ref.fa"))
+
+        # output directory
+        dir_chr  <- file.path(dir_scaf, chr)
+        if (!dir.exists(dir_chr)) {
+            dir.create(dir_chr, recursive = TRUE)
+        }
+
+        # extract the contigs of this chromosome and scaffold them
+        writeLines(df_bins$contig[df_bins$ref_chrom == chr], con=fn_ids)
+        system(paste(exe_seqkit, "grep -f", fn_ids, fn_asm, ">", fn_query))
+        system(paste(exe_seqkit, "grep -p", paste0(chr, "_RagTag"), fn_ref, ">", fn_chref))
+        f_ragtag(fn_ref        = fn_chref,
+                 fn_query      = fn_query,
+                 ragtag_params = ragtag_params,
+                 dir_out       = dir_chr,
+                 thread        = thread,
+                 exe_ragtag    = exe_ragtag,
+                 fn_exclude    = fn_exclude)
+
+        # extract the scaffolds of the chromosome
+        fn_scaf <- file.path(dir_chr, "ragtag.scaffold.fasta")
+        system(paste(exe_seqkit, "grep -p",    paste0(chr, "_RagTag"), fn_scaf, ">>", fn_chromosomes))
+        system(paste(exe_seqkit, "grep -v -p", paste0(chr, "_RagTag"), fn_scaf, ">>", fn_unplaced))
+        system(paste("grep -v '^#'", file.path(dir_chr, "ragtag.scaffold.agp"), ">>", fn_agp))
+    }
+
+    # extract contigs outside every bin
+    fn_unbinned <- file.path(dir_iter, "unbinned.txt")
+    ls_all      <- sub("\\s.*$", "", names(Biostrings::fasta.seqlengths(fn_asm)))
+    writeLines(setdiff(ls_all, df_bins$contig), con=fn_unbinned)
+    system(paste(exe_seqkit, "grep -f", fn_unbinned, fn_asm, ">>", fn_unplaced))
+
+    return(list(fn_chromosomes = fn_chromosomes, fn_unplaced = fn_unplaced, fn_agp = fn_agp))
+}
+
+# function: run tidk for telomere motifs
+f_tidk_search <- function(fn_fasta, prefix, dir_out, telomere_motif, exe_tidk) {
+    cmd_tidk <- paste(exe_tidk, "search",
+                      "-s", telomere_motif,
+                      "-o", prefix,
+                      "-d", dir_out,
+                      fn_fasta, "> /dev/null 2>&1")
+    system(cmd_tidk)
+
+    # return the output file
+    return(file.path(dir_out, paste0(prefix, "_telomeric_repeat_windows.tsv")))
+}
+
+# function: read an AGP file
+f_read_agp <- function(fn_agp) {
+    # set the column names
+    ls_cols <- c("object", "object_beg", "object_end", "part_number", "component_type",
+                 "component_id", "component_beg", "component_end", "orientation")
+
+    # open the file
+    ls_lines <- readLines(fn_agp)
+    ls_lines <- ls_lines[!startsWith(ls_lines, "#") & nzchar(ls_lines)]
+
+    # convert to data.frame
+    df_agp <- data.table::fread(text = c(paste(ls_cols, collapse = "\t"), ls_lines), sep = "\t", header = TRUE,
+                                colClasses = list(character = c(1, 5, 6, 7, 8, 9)))
+
+    return(df_agp)
+}
+
+# function: check for telomere arrays at the ends of scaffolds
+f_telomere_check <- function(fn_windows, fn_agp, fn_out, fn_ends_out, fn_exclude_out, min_copies = 100, min_anchor = 1e7, edge = 1e5, prefix = "") {
+    # read the AGP file
+    df_comp <- f_read_agp(fn_agp) %>%
+                    filter(component_type == "W") %>%
+                    transmute(scaffold = object,
+                              start    = object_beg,
+                              end      = object_end,
+                              contig   = component_id,
+                              length   = as.numeric(component_end) - as.numeric(component_beg) + 1)
+    
+    # extract the anchor contig
+    df_scaf <- df_comp %>%
+                    group_by(scaffold) %>%
+                    filter(any(length >= min_anchor)) %>%
+                    summarise(L         = max(end),
+                              anchor    = first(contig[length >= min_anchor]),
+                              anc_start = min(start[length >= min_anchor]),
+                              anc_end   = max(end[length >= min_anchor])) %>%
+                    arrange(desc(L))
+
+    # extract telomere arrays
+    df_win <- data.table::fread(fn_windows, select = 1:4, col.names = c("scaffold", "window", "fwd", "rev"), colClasses = list(character = 1)) %>%
+                  mutate(scaffold = sub(paste0("^", prefix), "", scaffold))
+    
+    # extract the window size used for tidk
+    wsize  <- df_win %>%
+                group_by(scaffold) %>%
+                filter(n() > 1) %>%
+                summarise(w = diff(sort(window))[1]) %>%
+                pull(w) %>%
+                head(1)
+
+    # collapse adjacent windows into arrays
+    df_arr <- df_win %>%
+                filter(fwd + rev >= min_copies) %>%
+                arrange(scaffold, window) %>%
+                group_by(scaffold) %>%
+                mutate(array = cumsum(is.na(lag(window)) | window > lag(window) + 2 * wsize)) %>%
+                group_by(scaffold, array) %>%
+                summarise(start = min(window) - wsize + 1, end = max(window), copies = sum(fwd + rev), fwd = sum(fwd))
+
+    # function: find the host contig of a telomere array
+    f_host <- function(s, pos) {
+        i <- which(df_comp$scaffold == s & df_comp$start <= pos & pos <= df_comp$end)
+        if (length(i)) {
+            df_comp$contig[i[1]]
+        } else {
+            NA_character_
+        }
+    }
+
+    # function: check for telomere arrays at one end of a scaffold
+    f_end <- function(df_a, df_c, anc_lo) {
+        # extract candidate arrays
+        cand <- df_a %>% filter(start < anc_lo + edge)
+        if (nrow(cand) == 0) {
+            return(tibble(telomere = FALSE, copies = NA, at_scaffold_end = NA, n_beyond = 0, beyond_bp = 0, beyond = NA_character_))
+        }
+
+        # find the nearest array to the anchor
+        nearest <- cand[which.max(cand$start), ]
+        i_host  <- which(df_c$start <= min(nearest$end, anc_lo + edge) & min(nearest$end, anc_lo + edge) <= df_c$end)
+
+        # find the contigs that lie beyond the nearest array
+        beyond  <- ifelse (length(i_host), df_c %>% filter(end < df_c$start[i_host[1]]), df_c[0, ])
+
+        # return a tibble with the results
+        tibble(telomere = TRUE,
+               copies = nearest$copies,
+               at_scaffold_end = nearest$start <= edge,
+               n_beyond = nrow(beyond),
+               beyond_bp = sum(beyond$length),
+               beyond = ifelse (nrow(beyond) > 0, paste(beyond$contig, collapse = ","), NA_character_))
+    }
+
+    # check every scaffold for telomere arrays at its ends
+    ls_ends <- list()
+    for (i in seq_len(nrow(df_scaf))) {
+        # extract the scaffold and its length
+        s <- df_scaf$scaffold[i]
+        L <- df_scaf$L[i]
+
+        # extract the arrays and components of this scaffold
+        df_a <- df_arr  %>% filter(scaffold == s)
+        df_c <- df_comp %>% filter(scaffold == s)
+
+        # function: mirror the coordinates of a scaffold
+        mirror <- function(d) {
+            d %>% mutate(start0 = start, start = L - end, end = L - start0) %>% select(-start0)
+        }
+
+        # check the left end and the right end of this scaffold
+        ls_ends[[i]] <- bind_rows(left  = f_end(df_a, df_c, df_scaf$anc_start[i]),
+                                  right = f_end(mirror(df_a), mirror(df_c), L - df_scaf$anc_end[i]),
+                                  .id   = "side") %>%
+                            mutate(scaffold = s,
+                                   anchor   = df_scaf$anchor[i],
+                                   .before  = 1)
+    }
+    df_ends <- bind_rows(ls_ends)
+
+    # store results in a data.frame
+    df_rows <- df_arr %>%
+                    filter(scaffold %in% df_scaf$scaffold) %>%
+                    left_join(df_scaf %>% select(scaffold, L, anc_start, anc_end), by = "scaffold") %>%
+                    mutate(forward_fraction = sprintf("%.2f", fwd / copies),
+                           component        = coalesce(mapply(f_host, scaffold, start), "-"),
+                           terminal         = if_else(start <= edge | end >= L - edge, "yes", "no"),
+                           internal_anchor  = if_else(anc_start + edge < start & end < anc_end - edge, "yes", "no")) %>%
+                    arrange(match(scaffold, df_scaf$scaffold), start) %>%
+                    select(scaffold, array_start = start, array_end = end, copies, forward_fraction, component, terminal, internal_anchor)
+
+    # extract the list of contigs that lie beyond the telomere arrays
+    ls_exclude <- as.character(unlist(strsplit(df_ends$beyond[!is.na(df_ends$beyond)], ",")))
+    writeLines(ls_exclude, fn_exclude_out)
+
+    # write the results to output files
+    data.table::fwrite(df_rows, fn_out,      sep = "\t", quote = FALSE)
+    data.table::fwrite(df_ends, fn_ends_out, sep = "\t", quote = FALSE, na = "-")
+    
+    return(invisible(list(arrays = df_rows, ends = df_ends, exclude = ls_exclude)))
 }

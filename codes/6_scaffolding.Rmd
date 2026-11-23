@@ -10,9 +10,8 @@ outdir_scaffolding_haptounion    <- file.path(outdir_scaffolding, "02_hap_to_uni
 outdir_haptounion_virlike        <- file.path(outdir_scaffolding_haptounion, "virlike")
 outdir_haptounion_declike        <- file.path(outdir_scaffolding_haptounion, "declike")
 outdir_scaffolding_binning       <- file.path(outdir_scaffolding, "03_binning")
-outdir_scaffolding_visualisation <- file.path(outdir_scaffolding, "04_visualisation")
 
-sapply(c(outdir_scaffolding_uniontoref, outdir_haptounion_virlike, outdir_haptounion_declike, outdir_scaffolding_binning, outdir_scaffolding_visualisation), function(x) {
+sapply(c(outdir_scaffolding_uniontoref, outdir_haptounion_virlike, outdir_haptounion_declike, outdir_scaffolding_binning), function(x) {
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
 # check if scaffolding reference genome exists
@@ -44,33 +43,141 @@ Biostrings::writeXStringSet(seq, filepath=fn_scaffold_ref)
 
 ```{union-to-ref}
 # combine the two haplotypes
-fn_dedup_union <- file.path(outdir_scaffolding_uniontoref, "union.dedup.fa")
+fn_dedup_union <- file.path(outdir_scaffolding, "union.dedup.fa")
 system(paste("cat", fn_hap1_dedup, fn_hap2_dedup, ">", fn_dedup_union))
 
 # run RagTag
-f_ragtag(fn_ref            = fn_scaffold_ref,
-         fn_query          = fn_dedup_union,
-         ragtag_parameters = "--mm2-params '-x asm20' -f 25000 -u -a 0.2",
-         dir_out           = outdir_scaffolding_uniontoref,
-         thread            = params$thread,
-         exe_ragtag        = params$exe_ragtag)
+fn_union2ref <- file.path(outdir_scaffolding_uniontoref, "union_chr.fa")
 
-# extract the respective chromosomes
-system(paste(params$exe_seqkit, "grep -r -p '^Chr'", file.path(outdir_scaffolding_uniontoref, "ragtag.scaffold.fasta"), ">", file.path(outdir_scaffolding_uniontoref, "union_chr.fa")))
+if (!file.exists(fn_union2ref) || params$redo) {
+    f_ragtag(fn_ref        = fn_scaffold_ref,
+             fn_query      = fn_dedup_union,
+             ragtag_params = "--mm2-params '-x asm20' -f 25000 -u -a 0.2",
+             dir_out       = outdir_scaffolding_uniontoref,
+             thread        = params$thread,
+             exe_ragtag    = params$exe_ragtag)
+    
+    # extract the respective chromosomes
+    system(paste(params$exe_seqkit, "grep -r -p '^Chr'",
+                 file.path(outdir_scaffolding_uniontoref, "ragtag.scaffold.fasta"), ">", fn_union2ref))
+}
+```
+
+```{extract-hap}
+# output files
+fn_decipiens_like <- file.path(outdir_scaffolding, "decipiens_like.fa")
+fn_virginea_like  <- file.path(outdir_scaffolding, "virginea_like.fa")
+
+# iterate over parents
+for (parent in c("decipiens", "virginea")) {
+    system(paste(params$exe_seqkit, "grep",
+                 "-f", file.path(outdir_assignment_final, paste0(parent, "_contig.txt")),
+                 fn_dedup_union, ">", file.path(outdir_scaffolding, paste0(parent, "_like.fa"))))
+}
 ```
 
 ```{hap-to-union}
-f_ragtag(fn_ref            = file.path(outdir_scaffolding_uniontoref, "union_chr.fa"),
-         fn_query          = file.path(outdir_assignment_final, "virginea_contig.txt"),
-         ragtag_parameters = "--mm2-params '-x asm20' -f 25000 -u -a 0.2",
-         dir_out           = outdir_haptounion_virlike,
-         thread            = params$thread,
-         exe_ragtag        = params$exe_ragtag)
+# open input files
+df_assign  <- data.table::fread(file.path(outdir_assignment_final, "parent_of_contig.tsv"), sep="\t",
+                                colClasses=list(character=c("contig", "partner")))
+df_dvscore <- data.table::fread(file.path(outdir_assignment_dvscoring, "dv_scoring.tsv"), sep="\t",
+                                colClasses=list(character=c("contig", "partner")))
 
-f_ragtag(fn_ref            = file.path(outdir_scaffolding_uniontoref, "union_chr.fa"),
-         fn_query          = file.path(outdir_assignment_final, "decipiens_contig.txt"),
-         ragtag_parameters = "--mm2-params '-x asm20' -f 25000 -u -a 0.2",
-         dir_out           = outdir_haptounion_declike,
-         thread            = params$thread,
-         exe_ragtag        = params$exe_ragtag)
+# iterate over parents
+for (parent in c("decipiens", "virginea")) {
+    # input files
+    dir_parent <- ifelse(parent=="decipiens", outdir_haptounion_declike, outdir_haptounion_virlike)
+    fn_asm     <- file.path(outdir_scaffolding, paste0(parent, "_like.fa"))
+    if (!file.exists(paste0(fn_asm, ".fai"))) { 
+        system(paste(params$exe_samtools, "faidx", fn_asm))
+    }
+
+    # chromosome binning
+    df_bins <- f_chromosome_bins(df_assign   = df_assign,
+                                 df_dvscore  = df_dvscore,
+                                 parent      = parent,
+                                 col_chrom   = ifelse(parent=="decipiens", "dec_chrom", "vir_chrom"),
+                                 min_aligned = 0.5)
+    data.table::fwrite(df_bins, file.path(dir_parent, "chr_bins.tsv"), sep="\t")
+
+    # set up variables
+    ls_exclude  <- character(0)
+    df_iter_log <- tibble()
+
+    # iterative binning
+    for (iter in seq_len(5)) {
+        # create output directory
+        dir_iter   <- file.path(dir_parent, sprintf("iter_%02d", iter))
+        if (!dir.exists(dir_iter)) {
+            dir.create(dir_iter, recursive=T)
+        }
+
+        # output files
+        fn_exclude <- file.path(dir_iter, "excluded_contigs.txt")
+        fn_beyond  <- file.path(dir_iter, "beyond_telomere.txt")
+
+        # check if output file exists
+        if (!file.exists(fn_beyond) || params$redo) {
+            # write the exclusion list
+            writeLines(ls_exclude, con=fn_exclude)
+
+            # scaffold per chromosome
+            ls_out <- f_scaffold_pass(df_bins       = df_bins,
+                                      fn_asm        = fn_asm,
+                                      fn_ref        = fn_union2ref,
+                                      dir_iter      = dir_iter,
+                                      ragtag_params = "--mm2-params '-x asm20' -f 25000 -u -a 0.2",
+                                      fn_exclude    = ifelse (length(ls_exclude) > 0, fn_exclude, NULL),
+                                      thread        = params$thread,
+                                      exe_seqkit    = params$seqkit,
+                                      exe_ragtag    = params$ragtag)
+
+            # look for telomeres
+            fn_windows <- f_tidk_search(fn_fasta       = ls_out$fn_chromosomes,
+                                        prefix         = parent,
+                                        dir_out        = file.path(dir_iter, "tidk"),
+                                        telomere_motif = "AAACCCT",
+                                        exe_tidk       = "tidk")
+
+            # check contigs outside of telomeres
+            ls_telomere <- f_telomere_check(fn_windows, ls_out$fn_agp, file.path(dir_iter, "telomeres.tsv"), fn_beyond,
+                                            min_copies = params$telomere_min_copies, min_anchor = params$telomere_min_anchor,
+                                            edge = params$telomere_edge)
+
+            # save the summary file
+            data.table::fwrite(ls_telomere$summary, file.path(dir_iter, "telomere_summary.tsv"), sep="\t", quote=F)
+        }
+
+        # extract fragments beyond a telomere that were not already excluded
+        ls_beyond <- readLines(fn_beyond)
+        ls_new    <- setdiff(ls_beyond, ls_exclude)
+
+        # stop the loop if no new fragments found
+        if (length(ls_new) == 0) {
+            break
+        }
+
+        # update the excluded list
+        ls_exclude <- union(ls_exclude, ls_new)
+    }
+
+    # update the log file if it has not converged
+    if (length(ls_new) > 0) {
+        log4r::warn(fn_logger, paste0(parent, ": not converged after 5 iterations."))
+    }
+
+    # save the output files
+    data.table::fwrite(df_iter_log, file.path(dir_parent, "iterations.tsv"), sep="\t")
+    writeLines(ls_exclude, file.path(dir_parent, "excluded_contigs.txt"))
+
+    # save the final scaffolded sequence
+    fn_final <- file.path(dir_parent, paste0("E_phylacis_", parent, "_like.scaffolds.fa"))
+    system(paste("cat", file.path(dir_iter, "chromosomes.fa"), file.path(dir_iter, "unplaced.fa"), ">", fn_final))
+
+    # copy the updated AGP file
+    file.copy(file.path(dir_iter, "combined.agp"), file.path(dir_parent, paste0("E_phylacis_", parent, "_like.scaffolds.agp")), overwrite=T)
+
+    # store the sequence statistics
+    system(paste(params$exe_seqkit, "stats", file.path(dir_iter, "chromosomes.fa"), file.path(dir_iter, "unplaced.fa"), fn_final, ">", file.path(dir_parent, "seqkit_stats.tsv")))
+}
 ```
