@@ -41,7 +41,7 @@ fn_scaffold_ref <- file.path(outdir_scaffolding_uniontoref, paste0(tools::file_p
 Biostrings::writeXStringSet(seq, filepath=fn_scaffold_ref)
 ```
 
-```{union-to-ref}
+```{r union-to-ref}
 # combine the two haplotypes
 fn_dedup_union <- file.path(outdir_scaffolding, "union.dedup.fa")
 system(paste("cat", fn_hap1_dedup, fn_hap2_dedup, ">", fn_dedup_union))
@@ -58,12 +58,12 @@ if (!file.exists(fn_union2ref) || params$redo) {
              exe_ragtag    = params$exe_ragtag)
     
     # extract the respective chromosomes
-    system(paste(params$exe_seqkit, "grep -r -p '^Chr'",
-                 file.path(outdir_scaffolding_uniontoref, "ragtag.scaffold.fasta"), ">", fn_union2ref))
+    system(paste(params$exe_seqkit, "grep -r -p '^Chr'", …, "|",
+                 params$exe_seqkit, "replace -p '_RagTag$' -r '' >", fn_union2ref))
 }
 ```
 
-```{extract-hap}
+```{r extract-hap}
 # output files
 fn_decipiens_like <- file.path(outdir_scaffolding, "decipiens_like.fa")
 fn_virginea_like  <- file.path(outdir_scaffolding, "virginea_like.fa")
@@ -76,7 +76,7 @@ for (parent in c("decipiens", "virginea")) {
 }
 ```
 
-```{hap-to-union}
+```{r hap-to-union}
 # open input files
 df_assign  <- data.table::fread(file.path(outdir_assignment_final, "parent_of_contig.tsv"), sep="\t",
                                 colClasses=list(character=c("contig", "partner")))
@@ -97,12 +97,11 @@ for (parent in c("decipiens", "virginea")) {
                                  df_dvscore  = df_dvscore,
                                  parent      = parent,
                                  col_chrom   = ifelse(parent=="decipiens", "dec_chrom", "vir_chrom"),
-                                 min_aligned = 0.5)
+                                 min_aligned = 50)
     data.table::fwrite(df_bins, file.path(dir_parent, "chr_bins.tsv"), sep="\t")
 
     # set up variables
     ls_exclude  <- character(0)
-    df_iter_log <- tibble()
 
     # iterative binning
     for (iter in seq_len(5)) {
@@ -127,25 +126,27 @@ for (parent in c("decipiens", "virginea")) {
                                       fn_ref        = fn_union2ref,
                                       dir_iter      = dir_iter,
                                       ragtag_params = "--mm2-params '-x asm20' -f 25000 -u -a 0.2",
-                                      fn_exclude    = ifelse (length(ls_exclude) > 0, fn_exclude, NULL),
+                                      fn_exclude    = if (length(ls_exclude) > 0) fn_exclude else NULL,
                                       thread        = params$thread,
-                                      exe_seqkit    = params$seqkit,
-                                      exe_ragtag    = params$ragtag)
+                                      exe_seqkit    = params$exe_seqkit,
+                                      exe_ragtag    = params$exe_ragtag)
 
             # look for telomeres
             fn_windows <- f_tidk_search(fn_fasta       = ls_out$fn_chromosomes,
                                         prefix         = parent,
                                         dir_out        = file.path(dir_iter, "tidk"),
                                         telomere_motif = "AAACCCT",
-                                        exe_tidk       = "tidk")
+                                        exe_tidk       = params$exe_tidk)
 
             # check contigs outside of telomeres
-            ls_telomere <- f_telomere_check(fn_windows, ls_out$fn_agp, file.path(dir_iter, "telomeres.tsv"), fn_beyond,
-                                            min_copies = params$telomere_min_copies, min_anchor = params$telomere_min_anchor,
-                                            edge = params$telomere_edge)
-
-            # save the summary file
-            data.table::fwrite(ls_telomere$summary, file.path(dir_iter, "telomere_summary.tsv"), sep="\t", quote=F)
+            ls_telomere <- f_telomere_check(fn_windows     = fn_windows,
+                                            fn_agp         = ls_out$fn_agp,
+                                            fn_out         = file.path(dir_iter, "telomeres.tsv"),
+                                            fn_ends_out    = file.path(dir_iter, "telomere_ends.tsv"),
+                                            fn_exclude_out = fn_beyond,
+                                            min_copies     = 100,
+                                            min_anchor     = 10000000,
+                                            edge           = 100000)
         }
 
         # extract fragments beyond a telomere that were not already excluded

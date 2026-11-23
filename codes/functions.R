@@ -753,7 +753,7 @@ f_scaffold_pass <- function(df_bins, fn_asm, fn_ref, dir_iter, ragtag_params, fn
         # extract the contigs of this chromosome and scaffold them
         writeLines(df_bins$contig[df_bins$ref_chrom == chr], con=fn_ids)
         system(paste(exe_seqkit, "grep -f", fn_ids, fn_asm, ">", fn_query))
-        system(paste(exe_seqkit, "grep -p", paste0(chr, "_RagTag"), fn_ref, ">", fn_chref))
+        system(paste(exe_seqkit, "grep -p", chr,    fn_ref, ">", fn_chref))
         f_ragtag(fn_ref        = fn_chref,
                  fn_query      = fn_query,
                  ragtag_params = ragtag_params,

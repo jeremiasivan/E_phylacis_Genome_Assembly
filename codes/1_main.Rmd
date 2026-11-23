@@ -38,6 +38,7 @@ params:
   exe_pigz        : "pigz"
   exe_samtools    : "samtools"
   exe_seqkit      : "seqkit"
+  exe_tidk        : "tidk"
 
   # --- Input Files ---------------------------------------------
   dir_raw_fastqgz  : ""
