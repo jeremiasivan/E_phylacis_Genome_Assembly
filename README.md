@@ -12,7 +12,7 @@ This pipeline requires a number of software, R packages, and databases to run. W
 
 ### Software
 |    Name        |                             Website                              |                             Anaconda                             |
-| -------------- |:----------------------------------------------------------------:|:----------------------------------------------------------------:|
+| -------------- | :--------------------------------------------------------------: | :--------------------------------------------------------------: |
 | barrnap        | <a href="https://github.com/tseemann/barrnap">Link</a>           | <a href="https://anaconda.org/bioconda/barrnap">Link</a>         |
 | BCFtools       | <a href="https://github.com/samtools/bcftools">Link</a>          | <a href="https://anaconda.org/bioconda/bcftools">Link</a>        |
 | BEDTools       | <a href="https://github.com/arq5x/bedtools2">Link</a>            | <a href="https://anaconda.org/bioconda/bedtools">Link</a>        |
@@ -46,7 +46,7 @@ BLAST+, DIAMOND, and Kraken 2 are only needed for the optional steps (`run_blast
 
 ### R packages
 |    Name     |                               CRAN                               |                                   Anaconda                               |
-| ----------- |:----------------------------------------------------------------:|:------------------------------------------------------------------------:|
+| ----------- | :--------------------------------------------------------------: | :----------------------------------------------------------------------: |
 | Biostrings  | <a href="https://bioconductor.org/packages/Biostrings">Link</a>  | <a href="https://anaconda.org/bioconda/bioconductor-biostrings">Link</a> |
 | data.table  | <a href="https://cran.r-project.org/package=data.table">Link</a> | <a href="https://anaconda.org/conda-forge/r-data.table">Link</a>         |
 | doSNOW      | <a href="https://cran.r-project.org/package=doSNOW">Link</a>     | <a href="https://anaconda.org/conda-forge/r-dosnow">Link</a>             |
@@ -60,18 +60,18 @@ BLAST+, DIAMOND, and Kraken 2 are only needed for the optional steps (`run_blast
 | tidyverse   | <a href="https://cran.r-project.org/package=tidyverse">Link</a>  | <a href="https://anaconda.org/conda-forge/r-tidyverse">Link</a>          |
 
 ### Databases and reference genomes
-|    Name                                 |                             Source                                                          | Used by             | Download        |
-| --------------------------------------- |:-------------------------------------------------------------------------------------------:|:-------------------:|:---------------:|
-| BUSCO lineage `eudicotyledons_odb12`    | <a href="https://github.com/huangnengCSU/compleasm">compleasm</a>                           | `3_hifiasm.Rmd`     | by the pipeline |
-| NCBI taxonomy (`new_taxdump`)           | <a href="https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/new_taxdump/">NCBI</a>                   | `3_hifiasm.Rmd`     | by the pipeline |
-| OatkDB (`magnoliopsida` HMMs)           | <a href="https://github.com/c-zhou/OatkDB">OatkDB</a>                                       | `4_organelle.Rmd`   | by the pipeline |
-| barrnap `euk.hmm`                       | <a href="https://github.com/tseemann/barrnap">barrnap</a>                                   | `5_assignment.Rmd`  | with barrnap    |
-| *E. decipiens* genome                   | <a href="https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_014182575.1/">GCA_014182575.1</a> | `5_assignment.Rmd`  | manual          |
-| *E. virginea* genome                    | <a href="https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_014182375.1/">GCA_014182375.1</a> | `5_assignment.Rmd`  | manual          |
-| *E. regnans* genome                     | <a href="https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_037349125.1/">GCA_037349125.1</a> | `6_scaffolding.Rmd` | manual          |
-| Kraken 2 PlusPFP database [optional]    | <a href="https://benlangmead.github.io/aws-indexes/k2">Index zone</a>                       | `2_qc.Rmd`          | manual          |
-| NCBI `core_nt` [optional]               | <a href="https://ftp.ncbi.nlm.nih.gov/blast/db/">NCBI</a>                                   | `3_hifiasm.Rmd`     | manual          |
-| UniProt/Swiss-Prot (DIAMOND) [optional] | <a href="https://www.uniprot.org/">UniProt</a>                                              | `3_hifiasm.Rmd`     | manual          |
+|    Name                                 |                             Source                                               | Used by             | Download        |
+| --------------------------------------- | :------------------------------------------------------------------------------- | :------------------ | :-------------- |
+| BUSCO lineage `eudicotyledons_odb12`    | <a href="https://github.com/huangnengCSU/compleasm">Link</a>                     | `3_hifiasm.Rmd`     | by the pipeline |
+| NCBI taxonomy (`new_taxdump`)           | <a href="https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/new_taxdump/">Link</a>        | `3_hifiasm.Rmd`     | by the pipeline |
+| OatkDB (`magnoliopsida` HMMs)           | <a href="https://github.com/c-zhou/OatkDB">Link</a>                              | `4_organelle.Rmd`   | by the pipeline |
+| barrnap `euk.hmm`                       | <a href="https://github.com/tseemann/barrnap">Link</a>                           | `5_assignment.Rmd`  | with barrnap    |
+| *E. decipiens* genome                   | <a href="https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_014182575.1/">Link</a> | `5_assignment.Rmd`  | manual          |
+| *E. virginea* genome                    | <a href="https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_014182375.1/">Link</a> | `5_assignment.Rmd`  | manual          |
+| *E. regnans* genome                     | <a href="https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_037349125.1/">Link</a> | `6_scaffolding.Rmd` | manual          |
+| Kraken 2 PlusPFP database [optional]    | <a href="https://benlangmead.github.io/aws-indexes/k2">Link</a>                  | `2_qc.Rmd`          | manual          |
+| NCBI `core_nt` [optional]               | <a href="https://ftp.ncbi.nlm.nih.gov/blast/db/">Link</a>                        | `3_hifiasm.Rmd`     | manual          |
+| UniProt/Swiss-Prot (DIAMOND) [optional] | <a href="https://www.uniprot.org/">Link</a>                                      | `3_hifiasm.Rmd`     | manual          |
 
 ## <a id="genpipe">General Pipeline</a>
 1. **Clone the Git repository** <br>
@@ -177,7 +177,7 @@ BLAST+, DIAMOND, and Kraken 2 are only needed for the optional steps (`run_blast
 
 36. Wickham, H., et al. (<a href="https://doi.org/10.21105/joss.01686">2019</a>). **Welcome to the tidyverse**. *Journal of Open Source Software*, *4*(43), 1686.
 
-37. Anthropic. (<a href="https://claude.ai/">2026</a>). Claude 5.1 Fable was used to review the code and to generate several functions in `codes/`.
+37. Anthropic. (<a href="https://claude.ai/">2026</a>). Claude 5.1 Fable was used to review the code and to generate several functions in `codes/` and this README.
 
 ---
 *Last update: 23 November 2026 by Jeremias Ivan*
