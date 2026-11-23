@@ -143,33 +143,39 @@ if (!file.exists(params$fn_ptDNA_validation)) {
             # run minimap
             fn_bam <- file.path(outdir_validation_mapping, paste0(sample, ".bam"))
 
-            f_minimap2_shortreads(fn_ref         = fn_ptDNA_noIRa,
-                                  minimap_params = "-ax sr",
-                                  fn_fastq_r1    = df_subset$r1_dir[1],
-                                  fn_fastq_r2    = df_subset$r2_dir[1],
-                                  fn_out         = fn_bam,
-                                  thread         = 1,
-                                  exe_minimap2   = params$exe_minimap,
-                                  exe_samtools   = params$exe_samtools,
-                                  exe_bedtools   = params$exe_bedtools)
+            if (!file.exists(fn_bam)) {
+                f_minimap2_shortreads(fn_ref         = fn_ptDNA_noIRa,
+                                      minimap_params = "-ax sr",
+                                      fn_fastq_r1    = df_subset$r1_dir[1],
+                                      fn_fastq_r2    = df_subset$r2_dir[1],
+                                      fn_out         = fn_bam,
+                                      thread         = 1,
+                                      exe_minimap2   = params$exe_minimap,
+                                      exe_samtools   = params$exe_samtools,
+                                      exe_bedtools   = params$exe_bedtools)
+            }
             
             # variant calling
             fn_vcf_gz <- file.path(outdir_validation_mapping, paste0(sample, ".vcf.gz"))
 
-            f_variant_calling(fn_ref       = fn_ptDNA_noIRa,
-                              fn_bam       = fn_bam,
-                              ploidy       = 1,
-                              fn_vcf       = fn_vcf_gz,
-                              exe_bcftools = params$exe_bcftools)
-            
+            if (!file.exists(fn_vcf_gz)) {
+                f_variant_calling(fn_ref       = fn_ptDNA_noIRa,
+                                  fn_bam       = fn_bam,
+                                  ploidy       = 1,
+                                  fn_vcf       = fn_vcf_gz,
+                                  exe_bcftools = params$exe_bcftools)
+            }
+
             # generate consensus sequences
             fn_consensus <- file.path(outdir_validation_consensus, paste0(sample, ".fasta"))
 
-            f_call_consensus(fn_ref       = fn_ptDNA_noIRa,
-                             fn_bed       = file.path(outdir_validation_mapping, paste0(sample, ".lowcov.bed")),
-                             fn_vcf       = file.path(outdir_validation_mapping, paste0(sample, ".snps.vcf.gz")),
-                             fn_consensus = fn_consensus,
-                             exe_bcftools = params$exe_bcftools)
+            if (!file.exists(fn_consensus)) {
+                f_call_consensus(fn_ref       = fn_ptDNA_noIRa,
+                                 fn_bed       = file.path(outdir_validation_mapping, paste0(sample, ".lowcov.bed")),
+                                 fn_vcf       = file.path(outdir_validation_mapping, paste0(sample, ".snps.vcf.gz")),
+                                 fn_consensus = fn_consensus,
+                                 exe_bcftools = params$exe_bcftools)
+            }
         }
 
         stopCluster(nwcl)

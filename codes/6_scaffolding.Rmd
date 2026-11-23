@@ -58,7 +58,7 @@ if (!file.exists(fn_union2ref) || params$redo) {
              exe_ragtag    = params$exe_ragtag)
     
     # extract the respective chromosomes
-    system(paste(params$exe_seqkit, "grep -r -p '^Chr'", …, "|",
+    system(paste(params$exe_seqkit, "grep -r -p '^Chr'", file.path(outdir_scaffolding_uniontoref, "ragtag.scaffold.fasta"), "|",
                  params$exe_seqkit, "replace -p '_RagTag$' -r '' >", fn_union2ref))
 }
 ```
@@ -168,7 +168,6 @@ for (parent in c("decipiens", "virginea")) {
     }
 
     # save the output files
-    data.table::fwrite(df_iter_log, file.path(dir_parent, "iterations.tsv"), sep="\t")
     writeLines(ls_exclude, file.path(dir_parent, "excluded_contigs.txt"))
 
     # save the final scaffolded sequence
