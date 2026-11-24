@@ -3,6 +3,9 @@ title: "Assembly of Organelle Genomes"
 ---
 
 ```{r, include=FALSE}
+readr::write_lines(c("", "--------- Organelle Assembly -------"),
+                   file=fn_log, append=T)
+
 # create output directories
 outdir_organelle          <- file.path(currentdir, "03_organelle")
 outdir_organelle_db       <- file.path(outdir_organelle, "db")
@@ -29,9 +32,11 @@ files    <- c("magnoliopsida_mito.fam",
               "magnoliopsida_pltd.fam.h3p")
 
 for (file in files) {
-    system(paste("wget",
-                 "-q", file.path(base_url, file),
-                 "-O", file.path(outdir_organelle_db, file)))
+    if (!file.exists(file) || params$redo) {
+        system(paste("wget",
+                     "-q", file.path(base_url, file),
+                     "-O", file.path(outdir_organelle_db, file)))
+    }
 }
 ```
 
@@ -40,12 +45,18 @@ for (file in files) {
 ```{r oatk}
 # run oatk
 if (!all(file.exists(fn_mtDNA, fn_ptDNA)) || params$redo) {
+    # update log file
+    log4r::info(fn_logger, "Running oatk...")
+
     f_oatk(fn_fastq    = file.path(outdir_hifiasm_corrected_reads, "hifiasm_asm.ec.fq"),
            prefix      = file.path(outdir_organelle_assembly, "E_phylacis"),
            fn_ref_mito = file.path(outdir_organelle_db, "magnoliopsida_mito.fam"),
            fn_ref_pltd = file.path(outdir_organelle_db, "magnoliopsida_pltd.fam"),
            thread      = params$thread,
            exe_oatk    = params$exe_oatk)
+    
+    # update log file
+    log4r::info(fn_logger, "Finished!")
 }
 ```
 
@@ -54,6 +65,7 @@ if (!all(file.exists(fn_mtDNA, fn_ptDNA)) || params$redo) {
 fn_organelles <- file.path(outdir_organelle_assembly, "both_organelles.fasta")
 unlink(fn_organelles)
 
+# update the sequence headers
 for (organelle in c("pltd", "mito")) {
     seq <- Biostrings::readBStringSet(file.path(outdir_organelle_assembly, paste0("E_phylacis.", organelle, ".ctg.fasta")))
     names(seq) <- paste0(organelle, "_", names(seq))
@@ -68,12 +80,18 @@ for (hap in c("hap1", "hap2")) {
 
     # align the haplotype assembly to the organelle genomes
     if (!file.exists(fn_paf) || params$redo) {
+        # update log file
+        log4r::info(fn_logger, paste("Mapping", hap, "to the organelle assemblies..."))
+
         f_minimap2_paf(fn_ref         = fn_organelles,
                        minimap_params = "-cx asm5",
                        fn_query       = fn_hap,
                        fn_out         = fn_paf,
                        thread         = params$thread,
                        exe_minimap2   = params$exe_minimap)
+        
+        # update log file
+        log4r::info(fn_logger, "Finished!")
     }
 
     # open the PAF file
@@ -105,6 +123,9 @@ if (!file.exists(params$fn_ptDNA_validation)) {
     log4r::error(fn_logger, "Input fn_ptDNA_validation is not found. Skipped.")
 
 } else {
+    # update log file
+    log4r::info(fn_logger, "Running ptDNA validation...")
+
     # open the metadata file
     df_metadata <- data.table::fread(params$fn_ptDNA_validation)
     if (!all(c("samples", "r1_dir", "r2_dir") %in% colnames(df_metadata))) {
@@ -205,6 +226,9 @@ if (!file.exists(params$fn_ptDNA_validation)) {
         f_iqtree2(fn_fasta    = fn_all_ptDNA,
                   thread      = params$thread,
                   exe_iqtree2 = params$exe_iqtree)
+        
+        # update log file
+        log4r::info(fn_logger, "Finished!")
     }
 }
 ```

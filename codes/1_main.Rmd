@@ -18,8 +18,6 @@ params:
   redo    : FALSE
   
   # --- Executables ---------------------------------------------\
-  exe_blobtools   : "blobtools"
-  exe_blobtk      : "blobtk"
   exe_bgzip       : "bgzip"
   exe_chopper     : "chopper"
   exe_compleasm   : "compleasm"
@@ -59,6 +57,9 @@ params:
   dir_kraken2_db : "/home/user/kraken2_db/pluspfp"
 
   # add BLAST hits for BlobTools
+  run_blobtools  : FALSE
+  exe_blobtools  : "blobtools"
+  exe_blobtk     : "blobtk"
   exe_blastn     : "blastn"
   exe_diamond    : "diamond"
   blast_nt_db    : "/home/user/blobtools/core_nt"

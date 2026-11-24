@@ -44,7 +44,6 @@ fn_hap1_vir_paf  <- file.path(outdir_assignment_dvscoring, "hap1_vir.paf")
 fn_hap2_dec_paf  <- file.path(outdir_assignment_dvscoring, "hap2_dec.paf")
 fn_hap2_vir_paf  <- file.path(outdir_assignment_dvscoring, "hap2_vir.paf")
 
-
 # output variable
 ls_anchors <- c()
 
@@ -523,7 +522,7 @@ for (hap in names(ls_haps)) {
     idx_part <- match(ls_contigs, df_partner$contig)
     idx_blob <- match(ls_contigs, df_blob$contig)
 
-    # contig length: from the decipiens scores, else virginea, else the hap1-vs-hap2 PAF, else 0
+    # extract contig length
     length <- coalesce(df_dec$len[idx_dec], df_vir$len[idx_vir], df_len$len[idx_len], 0)
 
     # store all information in a data.frame

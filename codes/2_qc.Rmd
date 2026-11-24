@@ -3,14 +3,18 @@ title: "QC of Eucalyptus x phylacis ONT Reads"
 ---
 
 ```{r, include=FALSE}
+readr::write_lines(c("", "---------      Reads QC      -------"),
+                   file=fn_log, append=T)
+
 # create output directories
 outdir_qc                   <- file.path(currentdir, "01_qc")
+outdir_qc_nanoplot          <- file.path(outdir_qc,  "00_nanoplot")
+outdir_qc_nanoplot_raw      <- file.path(outdir_qc_nanoplot,  "01_raw")
+outdir_qc_nanoplot_filtered <- file.path(outdir_qc_nanoplot,  "02_filtered")
 outdir_qc_chopper           <- file.path(outdir_qc,  "01_chopper")
-outdir_qc_nanoplot_raw      <- file.path(outdir_qc,  "nanoplot_raw")
-outdir_qc_nanoplot_filtered <- file.path(outdir_qc,  "nanoplot_filtered")
 outdir_qc_genomescope       <- file.path(outdir_qc,  "02_genomescope")
 
-sapply(c(outdir_qc_chopper, outdir_qc_nanoplot_raw, outdir_qc_nanoplot_filtered, outdir_qc_genomescope), function(x) {
+sapply(c(outdir_qc_nanoplot_raw, outdir_qc_nanoplot_filtered, outdir_qc_chopper, outdir_qc_genomescope), function(x) {
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
 # output files
@@ -28,14 +32,19 @@ if (length(ls_raw_fastqgz) < 1) {
 
 ```{r chopper, include=F}
 # run NanoPlot pre-filtering
-f_nanoplot(fn_fastq     = file.path(params$dir_raw_fastqgz, "*.fastq.gz"),
-           dir_out      = outdir_qc_nanoplot_raw,
-           thread       = params$thread,
-           title        = "E_phylacis_Raw_ONT",
-           exe_nanoplot = params$exe_nanoplot) 
+if (!file.exists(file.path(outdir_qc_nanoplot_raw, "NanoStats.txt")) || params$redo) {
+    f_nanoplot(fn_fastq     = file.path(params$dir_raw_fastqgz, "*.fastq.gz"),
+               dir_out      = outdir_qc_nanoplot_raw,
+               thread       = params$thread,
+               title        = "E_phylacis_Raw_ONT",
+               exe_nanoplot = params$exe_nanoplot)
+}
 
 # run Chopper
 if (!file.exists(fn_filtered_fastqgz) || params$redo) {
+    # update log file
+    log4r::info(fn_logger, "Running Chopper...")
+
     f_chopper(fn_fastq          = file.path(params$dir_raw_fastqgz, "*.fastq.gz"),
               min_q             = 10,
               min_len           = 15000,
@@ -44,14 +53,19 @@ if (!file.exists(fn_filtered_fastqgz) || params$redo) {
               exe_pigz          = params$exe_pigz,
               exe_chopper       = params$exe_chopper,
               exe_bgzip         = params$exe_bgzip)
+
+    # update log file
+    log4r::info(fn_logger, "Finished!")
 }
 
 # run NanoPlot post-filtering
-f_nanoplot(fn_fastq     = fn_filtered_fastqgz,
-           dir_out      = outdir_qc_nanoplot_filtered,
-           thread       = params$thread,
-           title        = "E_phylacis_Filtered_ONT",
-           exe_nanoplot = params$exe_nanoplot)
+if (!file.exists(file.path(outdir_qc_nanoplot_filtered, "NanoStats.txt")) || params$redo) {
+    f_nanoplot(fn_fastq     = fn_filtered_fastqgz,
+               dir_out      = outdir_qc_nanoplot_filtered,
+               thread       = params$thread,
+               title        = "E_phylacis_Filtered_ONT",
+               exe_nanoplot = params$exe_nanoplot)
+}
 
 # create a comparison table for the NanoPlot results
 df_nanoplot_raw      <- f_parse_nanostats(file.path(outdir_qc_nanoplot_raw,      "NanoStats.txt"))
@@ -84,13 +98,21 @@ data.table::fwrite(df_nanoplot_q,     file=file.path(outdir_qc_chopper, "summary
 
 ```{r genomescope, include=F}
 # run GenomeScope2
-f_kmc_genomescope(fn_fastq        = fn_filtered_fastqgz,
-                  kmer            = 21,
-                  dir_out         = outdir_qc_genomescope,
-                  thread          = params$thread,
-                  exe_kmc         = params$exe_kmc,
-                  exe_kmctools    = params$exe_kmctools,
-                  exe_genomescope = params$exe_genomescope)
+if (!file.exists(file.path(outdir_qc_genomescope, "summary.txt")) || params$redo) {
+    # update log file
+    log4r::info(fn_logger, "Running GenomeScope2...")
+
+    f_kmc_genomescope(fn_fastq        = fn_filtered_fastqgz,
+                      kmer            = 21,
+                      dir_out         = outdir_qc_genomescope,
+                      thread          = params$thread,
+                      exe_kmc         = params$exe_kmc,
+                      exe_kmctools    = params$exe_kmctools,
+                      exe_genomescope = params$exe_genomescope)
+    
+    # update log file
+    log4r::info(fn_logger, "Finished!")
+}
 ```
 
 ## Kraken2
@@ -98,7 +120,7 @@ f_kmc_genomescope(fn_fastq        = fn_filtered_fastqgz,
 ```{r kraken, eval=params$run_kraken2, include=params$run_kraken2}
 # check if database exists
 if (!dir.exists(params$dir_kraken2_db)) {
-    log4r::error(fn_logger, "Input dir_kraken2_db is not found. Skipped.")
+    log4r::warn(fn_logger, "Input dir_kraken2_db is not found. Skipped.")
 
 } else {
     outdir_qc_kraken <- file.path(outdir_qc, "03_kraken")
@@ -106,11 +128,19 @@ if (!dir.exists(params$dir_kraken2_db)) {
         dir.create(outdir_qc_kraken, recursive=T)
     }
 
-    f_kraken2(fn_fastq    = fn_filtered_fastqgz,
-              dir_db      = params$dir_kraken2_db,
-              confidence  = 0.2,
-              dir_out     = outdir_qc_kraken,
-              thread      = params$thread,
-              exe_kraken2 = params$exe_kraken2)
+    if (!file.exists(file.path(outdir_qc_kraken, "kraken2_report.txt")) || params$redo) {
+        # update log file
+        log4r::info(fn_logger, "Running Kraken2...")
+
+        f_kraken2(fn_fastq    = fn_filtered_fastqgz,
+                  dir_db      = params$dir_kraken2_db,
+                  confidence  = 0.2,
+                  dir_out     = outdir_qc_kraken,
+                  thread      = params$thread,
+                  exe_kraken2 = params$exe_kraken2)
+        
+        # update log file
+        log4r::info(fn_logger, "Finished!")
+    }    
 }
 ```
