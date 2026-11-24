@@ -61,7 +61,7 @@ BLAST+, DIAMOND, and Kraken 2 are only needed for the optional steps (`run_blast
 
 ### Databases and reference genomes
 |    Name                                 |                             Source                                               | Used by             | Download        |
-| --------------------------------------- | :------------------------------------------------------------------------------- | :------------------ | :-------------- |
+| --------------------------------------- | :------------------------------------------------------------------------------: | :------------------ | :-------------- |
 | BUSCO lineage `eudicotyledons_odb12`    | <a href="https://github.com/huangnengCSU/compleasm">Link</a>                     | `3_hifiasm.Rmd`     | by the pipeline |
 | NCBI taxonomy (`new_taxdump`)           | <a href="https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/new_taxdump/">Link</a>        | `3_hifiasm.Rmd`     | by the pipeline |
 | OatkDB (`magnoliopsida` HMMs)           | <a href="https://github.com/c-zhou/OatkDB">Link</a>                              | `4_organelle.Rmd`   | by the pipeline |
@@ -88,10 +88,10 @@ BLAST+, DIAMOND, and Kraken 2 are only needed for the optional steps (`run_blast
     - Install prerequisites
         ```
         conda install --strict-channel-priority -c conda-forge -c bioconda \
-            barrnap bcftools bedtools blast blobtk blobtoolkit chopper 'compleasm>=0.2.7' diamond \
+            barrnap=0.9 bcftools bedtools blast blobtk blobtoolkit chopper 'compleasm>=0.2.7' diamond \
             genomescope2 gfatools hifiasm=0.25.0 hmmer htslib 'iqtree=2.*' kmc kraken2 merqury meryl \
             minimap2 mosdepth nanoplot oatk pandoc pigz \
-            bioconductor-biostrings r-base r-data.table r-dosnow r-htmlwidgets r-knitr r-log4r r-optparse r-plotly r-rmarkdown r-tidyverse \
+            bioconductor-biostrings r-data.table r-dosnow r-htmlwidgets r-knitr r-log4r r-optparse r-plotly r-rmarkdown r-tidyverse \
             ragtag samtools seqkit tidk
         ```
     - Download the reference genomes and the optional databases listed above

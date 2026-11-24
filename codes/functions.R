@@ -931,3 +931,23 @@ f_telomere_check <- function(fn_windows, fn_agp, fn_out, fn_ends_out, fn_exclude
     
     return(invisible(list(arrays = df_rows, ends = df_ends, exclude = ls_exclude)))
 }
+
+# function: extract chromosome-scale contigs
+f_find_anchors <- function(df_fai, ls_df_paf_ref, min_ref_cov = 0.2) {
+    # calculate the reference coverage of every contig
+    df_ref_cov <- bind_rows(ls_df_paf_ref, .id = "reference") %>%
+                    filter(alen >= 10000, identity >= 0.9) %>%
+                    group_by(reference, contig = qname, ref_chrom = tname) %>%
+                    summarise(ref_cov = f_calculate_merged_len(tstart, tend) / first(tlen)) %>%
+                    group_by(contig) %>%
+                    slice_max(ref_cov, n = 1, with_ties = FALSE)
+
+    # return a data.frame with the contig lengths and reference coverage
+    df_anchors <- df_fai %>%
+                    left_join(df_ref_cov, by = "contig") %>%
+                    mutate(ref_cov = coalesce(ref_cov, 0),
+                        anchor = ref_cov >= min_ref_cov) %>%
+                    arrange(desc(ref_cov))
+    
+    return(df_anchors)
+}

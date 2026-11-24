@@ -25,7 +25,7 @@ params:
   exe_compleasm   : "compleasm"
   exe_merqury     : "merqury.sh"
   exe_meryl       : "meryl"
-  exe_genomescope : "GenomeScope2"
+  exe_genomescope : "genomescope2"
   exe_gfatools    : "gfatools"
   exe_hifiasm     : "hifiasm"
   exe_kmc         : "kmc"
@@ -51,10 +51,6 @@ params:
   fn_ref_virginea_r2  : "SRR25119786_R2.fastq.gz"
   
   fn_rrna_db       : "/home/user/anaconda3/envs/ephylacis/lib/barrnap/db/euk.hmm"
-
-  # --- [Optional] Input Files ----------------------------------
-  fn_dedup_exclude : "/home/user/E_phylacis_Genome_Assembly/files/assignment/chromosome_scale_contigs.txt"
-  fn_chr_parent    : "/home/user/E_phylacis_Genome_Assembly/files/assignment/parent_of_chromosome.tsv"
 
   # --- Optional Steps ------------------------------------------
   # run Kraken2

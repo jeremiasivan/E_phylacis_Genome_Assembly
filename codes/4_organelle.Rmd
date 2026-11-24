@@ -143,7 +143,7 @@ if (!file.exists(params$fn_ptDNA_validation)) {
             # run minimap
             fn_bam <- file.path(outdir_validation_mapping, paste0(sample, ".bam"))
 
-            if (!file.exists(fn_bam)) {
+            if (!file.exists(fn_bam) || file.size(fn_bam) < 1000000 || params$redo) {
                 f_minimap2_shortreads(fn_ref         = fn_ptDNA_noIRa,
                                       minimap_params = "-ax sr",
                                       fn_fastq_r1    = df_subset$r1_dir[1],
@@ -158,7 +158,7 @@ if (!file.exists(params$fn_ptDNA_validation)) {
             # variant calling
             fn_vcf_gz <- file.path(outdir_validation_mapping, paste0(sample, ".vcf.gz"))
 
-            if (!file.exists(fn_vcf_gz)) {
+            if (!file.exists(fn_vcf_gz) || params$redo) {
                 f_variant_calling(fn_ref       = fn_ptDNA_noIRa,
                                   fn_bam       = fn_bam,
                                   ploidy       = 1,
@@ -169,7 +169,7 @@ if (!file.exists(params$fn_ptDNA_validation)) {
             # generate consensus sequences
             fn_consensus <- file.path(outdir_validation_consensus, paste0(sample, ".fasta"))
 
-            if (!file.exists(fn_consensus)) {
+            if (!file.exists(fn_consensus) || params$redo) {
                 f_call_consensus(fn_ref       = fn_ptDNA_noIRa,
                                  fn_bed       = file.path(outdir_validation_mapping, paste0(sample, ".lowcov.bed")),
                                  fn_vcf       = file.path(outdir_validation_mapping, paste0(sample, ".snps.vcf.gz")),
