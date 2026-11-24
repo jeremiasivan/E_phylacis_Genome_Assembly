@@ -32,7 +32,7 @@ files    <- c("magnoliopsida_mito.fam",
               "magnoliopsida_pltd.fam.h3p")
 
 for (file in files) {
-    if (!file.exists(file) || params$redo) {
+    if (!file.exists(file.path(outdir_organelle_db, file)) || params$redo) {
         system(paste("wget",
                      "-q", file.path(base_url, file),
                      "-O", file.path(outdir_organelle_db, file)))

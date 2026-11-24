@@ -492,7 +492,7 @@ f_partners <- function(fn_paf) {
 f_read_blob <- function(fn_blob) {
     # create an empty data.table with the expected columns
     df_blob <- data.table::data.table(contig=character(), gc=numeric(), cov=numeric(), phylum=character())
-    if (is.null(fn_blob)) {
+    if (is.null(fn_blob) || !file.exists(fn_blob) || file.size(fn_blob) == 0) {
         return(df_blob)
     }
 
@@ -967,7 +967,7 @@ f_telomere_check <- function(fn_windows, fn_agp, fn_out, fn_ends_out, fn_exclude
 f_find_anchors <- function(df_fai, ls_df_paf_ref, min_ref_cov = 0.2) {
     # calculate the reference coverage of every contig
     df_ref_cov <- bind_rows(ls_df_paf_ref, .id = "reference") %>%
-                    filter(alen >= 10000, identity >= 0.9) %>%
+                    filter(alen >= 10000, identity >= 0.9, startsWith(tname, "Chr")) %>%
                     group_by(reference, contig = qname, ref_chrom = tname) %>%
                     summarise(ref_cov = f_calculate_merged_len(tstart, tend) / first(tlen)) %>%
                     group_by(contig) %>%

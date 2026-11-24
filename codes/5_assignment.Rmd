@@ -3,6 +3,9 @@ title: "Parental Assignment of Individual Contigs"
 ---
 
 ```{r, include=FALSE}
+readr::write_lines(c("", "-------- Parental Assignment -------"),
+                   file=fn_log, append=T)
+
 # create output directories
 outdir_assignment                 <- file.path(currentdir, "04_assignment")
 outdir_assignment_anchors         <- file.path(outdir_assignment, "00_anchors")
@@ -493,8 +496,8 @@ df_hap2_vir  <- f_score_paf(fn_paf = fn_hap2_vir_paf, min_aln = 1000, min_id = 0
 ls_partners <- f_partners(fn_hap1_hap2_paf)
 
 # extract the stats from Blobtools
-df_blob1    <- f_read_blob(file.path(outdir_hifiasm_blobtools, "hap1_btk.tsv"))
-df_blob2    <- f_read_blob(file.path(outdir_hifiasm_blobtools, "hap2_btk.tsv"))
+df_blob1 <- f_read_blob(file.path(outdir_hifiasm_blobtools, "hap1_btk.tsv"))
+df_blob2 <- f_read_blob(file.path(outdir_hifiasm_blobtools, "hap2_btk.tsv"))
 
 # set output variable
 df_rows <- data.table::data.table()
