@@ -534,6 +534,37 @@ f_read_blob <- function(fn_blob) {
     return(df_blob)
 }
 
+# function: remove contigs from a FASTA file
+f_remove_contigs <- function(fn_in, ls_remove, fn_out, exe_seqkit, exe_samtools) {
+    # save the list of contigs to remove
+    fn_list <- paste0(fn_out, ".removed.txt")
+    writeLines(ls_remove, fn_list)
+
+    # remove the contigs from the FASTA file
+    if (length(ls_remove) > 0) {
+        system(paste(exe_seqkit, "grep -v -f", fn_list, fn_in, ">", fn_out))
+    } else {
+        file.copy(fn_in, fn_out, overwrite = TRUE)
+    }
+
+    # index the output FASTA file
+    system(paste(exe_samtools, "faidx", fn_out))
+}
+
+# function: read mosdepth regions.bed.gz file
+f_read_depth <- function(fn_regions) {
+    # open the file
+    ls_lines <- readLines(gzfile(fn_regions))
+    if (length(ls_lines) == 0) {
+        return(numeric(0))
+    }
+
+    # convert the lines into a table
+    df_depth <- data.table::fread(text = paste0(paste(ls_lines, collapse = "\n"), "\n"),
+                                  sep = "\t", header = FALSE, colClasses = list(character = 1))
+    return(setNames(df_depth[[4]], df_depth[[1]]))
+}
+
 # function: call the parent of each contig
 f_call <- function(dec_aligned, vir_aligned, dec_id, vir_id, min_aligned, margin) {
   case_when(is.na(dec_aligned) & is.na(vir_aligned)                                ~ "no alignment",

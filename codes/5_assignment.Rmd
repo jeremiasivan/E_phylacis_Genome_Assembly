@@ -6,16 +6,17 @@ title: "Parental Assignment of Individual Contigs"
 # create output directories
 outdir_assignment                 <- file.path(currentdir, "04_assignment")
 outdir_assignment_anchors         <- file.path(outdir_assignment, "00_anchors")
-outdir_assignment_intrahap_dedup  <- file.path(outdir_assignment, "01_intrahap_dedup")
-outdir_assignment_crosshap_dedup  <- file.path(outdir_assignment, "02_crosshap_dedup")
-outdir_assignment_rrna            <- file.path(outdir_assignment, "03_rrna")
-outdir_assignment_assignment      <- file.path(outdir_assignment, "04_assignment")
+outdir_assignment_nonnuclear      <- file.path(outdir_assignment, "01_nonnuclear")
+outdir_assignment_rrna            <- file.path(outdir_assignment, "02_rrna")
+outdir_assignment_intrahap_dedup  <- file.path(outdir_assignment, "03_intrahap_dedup")
+outdir_assignment_crosshap_dedup  <- file.path(outdir_assignment, "04_crosshap_dedup")
+outdir_assignment_assignment      <- file.path(outdir_assignment, "05_assignment")
 outdir_assignment_dvscoring       <- file.path(outdir_assignment_assignment, "01_dvscoring")
 outdir_assignment_paircov         <- file.path(outdir_assignment_assignment, "02_pair_cov")
 outdir_assignment_dvkmers         <- file.path(outdir_assignment_assignment, "03_dvkmers")
-outdir_assignment_final           <- file.path(outdir_assignment, "05_final")
+outdir_assignment_final           <- file.path(outdir_assignment, "06_final")
 
-sapply(c(outdir_assignment_anchors, outdir_assignment_intrahap_dedup, outdir_assignment_crosshap_dedup, outdir_assignment_rrna, outdir_assignment_dvscoring, outdir_assignment_paircov, outdir_assignment_dvkmers, outdir_assignment_final), function(x) {
+sapply(c(outdir_assignment_anchors, outdir_assignment_nonnuclear, outdir_assignment_rrna, outdir_assignment_intrahap_dedup, outdir_assignment_crosshap_dedup, outdir_assignment_dvscoring, outdir_assignment_paircov, outdir_assignment_dvkmers, outdir_assignment_final), function(x) {
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
 # check if both parental reference genomes exist
@@ -99,100 +100,169 @@ writeLines(ls_anchors, con=file.path(outdir_assignment_anchors, "chromosome_scal
 ```
 
 
-```{r intrahap}
-# check if output files exist
-fn_hap1_self <- file.path(outdir_assignment_intrahap_dedup, "hap1_hap1.paf")
-fn_hap2_self <- file.path(outdir_assignment_intrahap_dedup, "hap2_hap2.paf")
-
-if (!all(file.exists(fn_hap1_self, fn_hap2_self)) || params$redo) {
-    # map hap1 to itself
-    f_minimap2_paf(fn_ref         = fn_hap1,
-                   minimap_params = "-cx asm20 -DP -m200",
-                   fn_query       = fn_hap1,
-                   fn_out         = fn_hap1_self,
-                   thread         = params$thread,
-                   exe_minimap2   = params$exe_minimap)
-
-    # map hap2 to itself
-    f_minimap2_paf(fn_ref         = fn_hap2,
-                   minimap_params = "-cx asm20 -DP -m200",
-                   fn_query       = fn_hap2,
-                   fn_out         = fn_hap2_self,
-                   thread         = params$thread,
-                   exe_minimap2   = params$exe_minimap)
-}
+```{r nonnuclear}
+# output files
+fn_hap1_nuclear <- file.path(outdir_assignment_nonnuclear, "hap1.nuclear.fa")
+fn_hap2_nuclear <- file.path(outdir_assignment_nonnuclear, "hap2.nuclear.fa")
 
 # iterate over haplotypes
 for (hap in c("hap1", "hap2")) {
-    # read the PAF file
-    df_paf <- f_read_paf(file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_", hap, ".paf")))
+    fn_in  <- if (hap == "hap1") fn_hap1         else fn_hap2
+    fn_out <- if (hap == "hap1") fn_hap1_nuclear else fn_hap2_nuclear
+    if (file.exists(fn_out) && !params$redo) {
+        next
+    }
+
+    # organelle contigs flagged in the organelle step (never a chromosome-scale contig)
+    fn_organelle <- file.path(outdir_organelle_assembly, paste0(hap, "_organelle.txt"))
+    ls_organelle <- if (file.exists(fn_organelle)) readLines(fn_organelle) else character(0)
+    ls_organelle <- setdiff(ls_organelle, ls_anchors)
+
+    # remove contigs from the haplotypes
+    f_remove_contigs(fn_in        = fn_in,
+                     ls_remove    = ls_organelle,
+                     fn_out       = fn_out,
+                     exe_seqkit   = params$exe_seqkit,
+                     exe_samtools = params$exe_samtools)
+
+    log4r::info(fn_logger, paste0(hap, ": ", length(ls_organelle), " organelle contigs removed"))
+}
+```
+
+```{r rrna}
+# list of rRNA genes
+ls_genes <- c("18S_rRNA", "5_8S_rRNA", "28S_rRNA", "5S_rRNA")
+
+# output variable
+ls_rrna <- list(hap1=character(0), hap2=character(0))
+
+# check if input database exists
+if (!is.null(params$fn_rrna_db) && file.exists(params$fn_rrna_db)) {
+    for (hap in c("hap1", "hap2")) {
+        # input and output files
+        fn_in      <- if (hap == "hap1") fn_hap1_nuclear else fn_hap2_nuclear
+        fn_wrapped <- file.path(outdir_assignment_rrna, paste0(hap, ".wrapped.fa"))
+        fn_tblout  <- file.path(outdir_assignment_rrna, paste0(hap, "_rrna.tbl"))
+        fn_counts  <- file.path(outdir_assignment_rrna, paste0(hap, "_rrna_counts.tsv"))
+
+        # wrap the FASTA file for nhmmer
+        if (!file.exists(fn_wrapped) || params$redo) {
+            system(paste(params$exe_seqkit, "seq -w 60", fn_in, ">", fn_wrapped))
+        }
+
+        # search for rRNA genes
+        if (!file.exists(fn_tblout) || params$redo) {
+            f_nhmmer(fn_hmm     = params$fn_rrna_db,
+                     fn_fasta   = fn_wrapped,
+                     fn_tblout  = fn_tblout,
+                     thread     = params$thread,
+                     exe_nhmmer = params$exe_nhmmer)
+        }
+
+        # extract the hits per contig and gene
+        df_hits <- f_read_nhmmer_tblout(fn_tblout)
+        df_rrna <- tibble(contig=character(), total=numeric())
+        if (nrow(df_hits) > 0) {
+            df_rrna <- df_hits %>%
+                           count(contig = target, gene = query) %>%
+                           complete(contig, gene = ls_genes, fill = list(n = 0)) %>%
+                           pivot_wider(names_from = gene, values_from = n) %>%
+                           select(contig, all_of(ls_genes)) %>%
+                           mutate(total = rowSums(across(all_of(ls_genes)))) %>%
+                           arrange(desc(total)) %>%
+                           filter(total >= 5)
+        }
+
+        # save the data.frame
+        data.table::fwrite(df_rrna, file=fn_counts, sep="\t", quote=F)
+
+        # store the contigs in a list
+        ls_rrna[[hap]] <- df_rrna$contig
+        log4r::info(fn_logger, paste0(hap, ": ", length(ls_rrna[[hap]]), " contigs carry rRNA genes"))
+    }
+}
+```
+
+```{r intrahap}
+# output files
+fn_hap1_intrahap <- file.path(outdir_assignment_intrahap_dedup, "hap1.intrahap.fa")
+fn_hap2_intrahap <- file.path(outdir_assignment_intrahap_dedup, "hap2.intrahap.fa")
+
+# iterate over haplotypes
+for (hap in c("hap1", "hap2")) {
+    fn_in   <- if (hap == "hap1") fn_hap1_nuclear  else fn_hap2_nuclear
+    fn_out  <- if (hap == "hap1") fn_hap1_intrahap else fn_hap2_intrahap
+    fn_self <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_", hap, ".paf"))
+
+    # map the haplotype to itself
+    if (!file.exists(fn_self) || params$redo) {
+        f_minimap2_paf(fn_ref         = fn_in,
+                       minimap_params = "-cx asm20 -DP -m200",
+                       fn_query       = fn_in,
+                       fn_out         = fn_self,
+                       thread         = params$thread,
+                       exe_minimap2   = params$exe_minimap)
+    }
 
     # filter contig pairs
-    df_paf <- df_paf %>%
+    df_paf <- f_read_paf(fn_self) %>%
                 filter(qname != tname & alen >= 10000) %>%                      # exclude self-hits and short alignments
                 filter(tlen > qlen | (tlen == qlen & tname > qname)) %>%        # exclude queries longer than targets and duplicates
                 mutate(identity = ifelse(is.na(de), nmatch/alen, 1-de)) %>%     # calculate pairwise identity
                 filter(identity >= 0.9)                                         # exclude low-identity alignments
-    
+
     # calculate statistics per contig
-    df_contig <- df_paf %>%
-                    group_by(contig = qname) %>%
-                    summarise(
-                        length       = first(qlen),
-                        frac_covered = round(f_calculate_merged_len(qstart, qend) / first(qlen), 3),
-                        max_identity = round(max(identity), 3),
-                        contained_in = f_extract_top_targets(qstart, qend, identity, tname),
-                        depth_cutoff = 55 - (27.5 / 2) * frac_covered
-                    )
-    
+    df_contig <- tibble(contig=character(), length=numeric(), frac_covered=numeric(), max_identity=numeric(), contained_in=character(), depth_cutoff=numeric())
+    if (nrow(df_paf) > 0) {
+        df_contig <- df_paf %>%
+                        group_by(contig = qname) %>%
+                        summarise(
+                            length       = first(qlen),
+                            frac_covered = round(f_calculate_merged_len(qstart, qend) / first(qlen), 3),
+                            max_identity = round(max(identity), 3),
+                            contained_in = f_extract_top_targets(qstart, qend, identity, tname),
+                            depth_cutoff = 55 - (27.5 / 2) * frac_covered
+                        )
+    }
+
     # save the list of putative duplicated contigs
     ls_length <- setNames(df_contig$length, df_contig$contig)
     ls_dups   <- df_contig$contig[df_contig$frac_covered >= 0.8]
 
-    # save the contigs as BED file
-    fn_bed <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups.bed"))
-    df_bed <- data.table::data.table(chrom=ls_dups, start=0, end=ls_length[ls_dups])
-    data.table::fwrite(df_bed, file=fn_bed, sep="\t", col.names=FALSE)
-    
-    # calculate the mean read depth of each contig
+    # calculate the mean read depth of each candidate
+    fn_bed         <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups.bed"))
     fn_regions_bed <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups.regions.bed.gz"))
+    ls_depth       <- numeric(0)
 
-    f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
-               fn_bed       = fn_bed,
-               prefix       = file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups")),
-               thread       = params$thread,
-               exe_mosdepth = params$exe_mosdepth)
-    
-    # open the BED file
-    ls_lines <- readLines(gzfile(fn_regions_bed))
-    df_depth <- data.table::fread(text=c("contig\tstart\tend\tdepth", ls_lines), sep="\t", header=TRUE)
-    ls_depth <- setNames(df_depth$depth, df_depth$contig)
+    # check if there are duplicates
+    if (length(ls_dups) > 0) {
+        # save the putative duplicates as a BED file
+        df_bed <- data.table::data.table(chrom=ls_dups, start=0, end=ls_length[ls_dups])
+        data.table::fwrite(df_bed, file=fn_bed, sep="\t", col.names=FALSE)
 
-    # add the depth column to df_contig
-    df_contig$depth  <- unname(ls_depth[df_contig$contig])
+        # run mosdepth
+        f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
+                   fn_bed       = fn_bed,
+                   prefix       = file.path(outdir_assignment_intrahap_dedup, paste0(hap, ".dups")),
+                   thread       = params$thread,
+                   exe_mosdepth = params$exe_mosdepth)
+        
+        # extract the depth of each contig
+        ls_depth <- f_read_depth(fn_regions_bed)
 
-    # output variable
-    ls_decision <- character(0)
-
-    # iterate over contigs from shortest to longest
-    for (i in seq_len(nrow(df_contig))) {
-        ctg        <- df_contig$contig[i]
-        ctg_depth  <- df_contig$depth[i]
-        cutoff     <- df_contig$depth_cutoff[i]
-        identity   <- df_contig$max_identity[i]
-
-        # make a decision on each contig
-        if (is.na(ctg_depth)) {
-            ls_decision[ctg] <- "keep (not candidate)"
-        } else if (ctg_depth <= cutoff) {
-            ls_decision[ctg] <- "drop (low depth)"
-        } else {
-            ls_decision[ctg] <- "keep (high coverage)"
-        }
+    } else {
+        unlink(c(fn_bed, fn_regions_bed))
     }
 
-    # add the decision column to df_frag
-    df_contig$decision <- unname(ls_decision[df_contig$contig])
+    # add the depth column to df_contig
+    df_contig$depth <- unname(ls_depth[df_contig$contig])
+
+    # make a decision on each candidate
+    df_contig <- df_contig %>%
+                    mutate(decision = case_when(is.na(depth)                ~ "keep (not candidate)",
+                                                contig %in% ls_rrna[[hap]]  ~ "drop (rDNA fragment)",
+                                                depth <= depth_cutoff       ~ "drop (low depth)",
+                                                .default = "keep (high coverage)"))
 
     # save data.frame
     fn_output <- file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_summary.tsv"))
@@ -204,18 +274,55 @@ for (hap in c("hap1", "hap2")) {
 
     ls_drop <- df_contig %>% filter(startsWith(decision, "drop")) %>% pull(contig)
     writeLines(ls_drop, con=file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_drop.txt")))
+
+    # remove the duplicates
+    if (!file.exists(fn_out) || params$redo) {
+        f_remove_contigs(fn_in        = fn_in,
+                         ls_remove    = ls_drop,
+                         fn_out       = fn_out,
+                         exe_seqkit   = params$exe_seqkit,
+                         exe_samtools = params$exe_samtools)
+    }
+
+    log4r::info(fn_logger, paste0(hap, ": ", sum(df_contig$decision == "drop (low depth)"), " intra-haplotype duplicates and ",
+                                  sum(df_contig$decision == "drop (rDNA fragment)"), " rDNA fragments removed"))
 }
 ```
 
 ```{r crosshap}
+# output files
+fn_hap1_dedup <- file.path(outdir_assignment_crosshap_dedup, "hap1.dedup.fa")
+fn_hap2_dedup <- file.path(outdir_assignment_crosshap_dedup, "hap2.dedup.fa")
+
+# union of the two purged haplotypes
+fn_union_purged <- file.path(outdir_assignment_crosshap_dedup, "union.intrahap.fa")
+if (!file.exists(fn_union_purged) || params$redo) {
+    system(paste("cat", fn_hap1_intrahap, fn_hap2_intrahap, ">", fn_union_purged))
+    system(paste(params$exe_samtools, "faidx", fn_union_purged))
+}
+
 # open the union index file
-df_fai    <- data.table::fread(paste0(fn_hap_union, ".fai"), header=FALSE, select=1:2, col.names=c("contig", "length"))
+df_fai    <- data.table::fread(paste0(fn_union_purged, ".fai"), header=FALSE, select=1:2, col.names=c("contig", "length"), colClasses=list(character=1))
 ls_length <- setNames(df_fai$length, df_fai$contig)
 ls_pool   <- df_fai$contig
 
 # exclude chromosome-scale contigs
 ls_excluded <- ls_anchors
 ls_pool     <- ls_pool[!ls_pool %in% ls_excluded]
+
+# remap the filtered reads to the purged haplotypes
+for (hap in c("hap1", "hap2")) {
+    fn_bam <- file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".bam"))
+    if (!file.exists(fn_bam) || params$redo) {
+        f_minimap2_bam(fn_ref         = if (hap == "hap1") fn_hap1_intrahap else fn_hap2_intrahap,
+                       minimap_params = "-ax lr:hq",
+                       fn_query       = fn_filtered_fastqgz,
+                       fn_out         = fn_bam,
+                       thread         = params$thread,
+                       exe_minimap2   = params$exe_minimap,
+                       exe_samtools   = params$exe_samtools)
+    }
+}
 
 # write the list of contigs to a file
 fn_pool_txt <- file.path(outdir_assignment_crosshap_dedup, "pool.txt")
@@ -226,9 +333,9 @@ fn_pool_fa   <- file.path(outdir_assignment_crosshap_dedup, "pool.fa")
 fn_union_paf <- file.path(outdir_assignment_crosshap_dedup, "union.paf")
 
 if (!all(file.exists(fn_pool_fa, fn_union_paf)) || params$redo) {
-    system(paste(params$exe_seqkit, "grep -f", fn_pool_txt, fn_hap_union, ">", fn_pool_fa))
+    system(paste(params$exe_seqkit, "grep -f", fn_pool_txt, fn_union_purged, ">", fn_pool_fa))
 
-    f_minimap2_paf(fn_ref         = fn_hap_union,
+    f_minimap2_paf(fn_ref         = fn_union_purged,
                    minimap_params = "-cx asm20",
                    fn_query       = fn_pool_fa,
                    fn_out         = fn_union_paf,
@@ -237,21 +344,21 @@ if (!all(file.exists(fn_pool_fa, fn_union_paf)) || params$redo) {
 }
 
 # read the PAF file
-df_paf <- f_read_paf(fn_union_paf)
-
-# filter contig pairs
-df_paf <- df_paf %>%
-            filter(qname != tname & alen >= 10000) %>%               # exclude self-hits and short alignments
-            mutate(identity = ifelse(is.na(de), nmatch/alen, 1-de))  # calculate pairwise identity
+df_paf <- f_read_paf(fn_union_paf) %>%
+            filter(qname != tname & alen >= 10000) %>%
+            mutate(identity = ifelse(is.na(de), nmatch/alen, 1-de))
 
 # extract the best hit for each contig
-df_best_aln <- df_paf %>%
-                group_by(contig = qname) %>%
-                mutate(best_hit = tname[which.max(identity)]) %>%
-                filter(tname == best_hit) %>%  
-                summarise(best_hit     = first(best_hit),
-                          identity     = max(identity),
-                          frac_covered = round(f_calculate_merged_len(qstart, qend) / first(qlen), 3))
+df_best_aln <- tibble(contig=character(), best_hit=character(), identity=numeric(), frac_covered=numeric())
+if (nrow(df_paf) > 0) {
+    df_best_aln <- df_paf %>%
+                    group_by(contig = qname) %>%
+                    mutate(best_hit = tname[which.max(identity)]) %>%
+                    filter(tname == best_hit) %>%
+                    summarise(best_hit     = first(best_hit),
+                              identity     = max(identity),
+                              frac_covered = round(f_calculate_merged_len(qstart, qend) / first(qlen), 3))
+}
 
 # classify each contig (including those with no hit)
 df_frag <- tibble(fragment = ls_pool, length = unname(ls_length[ls_pool])) %>%
@@ -265,23 +372,24 @@ df_frag <- tibble(fragment = ls_pool, length = unname(ls_length[ls_pool])) %>%
 
 # check duplicated contigs' depth
 for (hap in c("hap1", "hap2")) {
-    # output file
-    fn_bed <- file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups.bed"))
+    # output files
+    fn_bed         <- file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups.bed"))
+    fn_regions_bed <- file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups.regions.bed.gz"))
 
     # extract haplotype-specific contigs
     hap_prefix <- ifelse(hap=="hap1", "h1", "h2")
-    ls_dups <- df_frag %>% filter(class == "duplicate" & startsWith(fragment, hap_prefix)) %>% pull(fragment)   
+    ls_dups <- df_frag %>% filter(class == "duplicate" & startsWith(fragment, hap_prefix)) %>% pull(fragment)
     if (length(ls_dups) == 0) {
-        unlink(fn_bed)
+        unlink(c(fn_bed, fn_regions_bed))
         next
     }
 
     # save the contigs as BED file
     df_bed <- data.table::data.table(chrom=ls_dups, start=0, end=ls_length[ls_dups])
     data.table::fwrite(df_bed, file=fn_bed, sep="\t", col.names=FALSE)
-    
+
     # calculate the mean read depth of each contig
-    f_mosdepth(fn_bam       = file.path(outdir_blobtools_minimap, paste0(hap, ".bam")),
+    f_mosdepth(fn_bam       = file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".bam")),
                fn_bed       = fn_bed,
                prefix       = file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dups")),
                thread       = params$thread,
@@ -295,10 +403,8 @@ system(paste("zcat",
              file.path(outdir_assignment_crosshap_dedup, "hap2.dups.regions.bed.gz"),
              "2>/dev/null | gzip >", fn_all_regions))
 
-# open the BED file
-ls_lines <- readLines(gzfile(fn_all_regions))
-df_depth <- data.table::fread(text=c("contig\tstart\tend\tdepth", ls_lines), sep="\t", header=TRUE)
-ls_depth <- setNames(df_depth$depth, df_depth$contig)
+# depth of every candidate (empty when there is none)
+ls_depth <- f_read_depth(fn_all_regions)
 
 # add the depth column to df_frag
 df_frag$depth <- unname(ls_depth[df_frag$fragment])
@@ -313,7 +419,7 @@ for (i in order(df_frag$length)) {
     frag_depth   <- df_frag$depth[i]
 
     # keep undocumented hit as it has to be longer than frag
-    hit_decision <- ifelse (hit %in% names(ls_decision), ls_decision[[hit]], "keep") 
+    hit_decision <- if (hit %in% names(ls_decision)) ls_decision[[hit]] else "keep"
 
     # make a decision on each contig
     if (df_frag$class[i] != "duplicate") {
@@ -346,88 +452,22 @@ data.table::fwrite(df_out, file=file.path(outdir_assignment_crosshap_dedup, "sum
 # save the list of dropped contigs
 ls_drop <- df_out %>% filter(startsWith(decision, "drop")) %>% pull(fragment)
 writeLines(ls_drop, con=file.path(outdir_assignment_crosshap_dedup, "drop.txt"))
-```
 
-```{r rrna}
-# list of rRNA genes
-ls_genes   <- c("18S_rRNA", "5_8S_rRNA", "28S_rRNA", "5S_rRNA")
-
-# run nhmmer
-if (!is.null(params$fn_rrna_db) && file.exists(params$fn_rrna_db)) {
-    for (hap in c("hap1", "hap2")) {
-        # input files
-        fn_hap     <- file.path(outdir_hifiasm_assembly, paste0("hifiasm_asm.bp.", hap, ".p_ctg.fa"))
-        fn_wrapped <- file.path(outdir_assignment_rrna, paste0(hap, ".wrapped.fa"))
-        fn_tblout  <- file.path(outdir_assignment_rrna, paste0(hap, "_rrna.tbl"))
-        fn_out     <- file.path(outdir_assignment_rrna, paste0(hap, "_rrna_counts.tsv"))
-    
-        # line-wrapped copy of the assembly for nhmmer
-        if (!file.exists(fn_wrapped) || params$redo) {
-            system(paste(params$exe_seqkit, "seq -w 60", fn_hap, ">", fn_wrapped))
-        }
-
-        # search for rRNA genes
-        if (!file.exists(fn_tblout) || params$redo) {
-            f_nhmmer(fn_hmm     = params$fn_rrna_db,
-                     fn_fasta   = fn_wrapped,
-                     fn_tblout  = fn_tblout,
-                     thread     = params$thread,
-                     exe_nhmmer = params$exe_nhmmer) 
-        }
-
-        # read the rRNA table
-        df_rrna <- f_read_nhmmer_tblout(fn_tblout) %>%
-                        count(contig = target, gene = query) %>%
-                        complete(contig, gene = ls_genes, fill = list(n = 0)) %>% 
-                        pivot_wider(names_from = gene, values_from = n) %>%
-                        select(contig, all_of(ls_genes)) %>%
-                        mutate(total = rowSums(across(all_of(ls_genes)))) %>%
-                        arrange(desc(total)) %>%
-                        filter(total >= 5)
-
-        data.table::fwrite(df_rrna, file=fn_out, sep="\t", quote=F)
-
-        # open the list of contigs with high coverage
-        ls_keep <- readLines(file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_keep.txt")))
-
-        # drop duplicate rRNA genes
-        ls_drop <- df_rrna$contig[df_rrna$contig %in% ls_keep & !df_rrna$contig %in% ls_anchors]
-        writeLines(ls_drop, con=file.path(outdir_assignment_rrna, paste0(hap, "_drop.txt")))
-    }
-}
-```
-
-```{r deduplication}
-# output files
-fn_hap1_dedup <- file.path(outdir_assignment_crosshap_dedup, "hap1.dedup.fa")
-fn_hap2_dedup <- file.path(outdir_assignment_crosshap_dedup, "hap2.dedup.fa")
-
-# iterate over haplotypes
+# remove the duplicates from each haplotype
 if (!all(file.exists(fn_hap1_dedup, fn_hap2_dedup)) || params$redo) {
-    for (hap in c("hap1", "hap2")) {
-        # open all contigs to remove
-        ls_organelle <- readLines(file.path(outdir_organelle_assembly, paste0(hap, "_organelle.txt")))
-        ls_intradups <- readLines(file.path(outdir_assignment_intrahap_dedup, paste0(hap, "_drop.txt")))
-        ls_crossdups <- readLines(file.path(outdir_assignment_crosshap_dedup, "drop.txt"))
-        ls_to_remove <- unique(c(ls_organelle, ls_intradups, ls_crossdups))
-
-        # open rRNA genes
-        fn_rrna_drop <- file.path(outdir_assignment_rrna, paste0(hap, "_drop.txt"))
-        if (file.exists(fn_rrna_drop)) {
-            ls_rrna      <- readLines(fn_rrna_drop)
-            ls_to_remove <- unique(c(ls_to_remove, ls_rrna))
-        }
-
-        # open the FASTA sequence
-        seq <- Biostrings::readBStringSet(file.path(outdir_hifiasm_assembly, paste0("hifiasm_asm.bp.", hap, ".p_ctg.fa")))
-        seq <- seq[!names(seq) %in% ls_to_remove]
-        Biostrings::writeXStringSet(seq, filepath=file.path(outdir_assignment_crosshap_dedup, paste0(hap, ".dedup.fa")))
-    }
+    f_remove_contigs(fn_in        = fn_hap1_intrahap,
+                     ls_remove    = ls_drop,
+                     fn_out       = fn_hap1_dedup,
+                     exe_seqkit   = params$exe_seqkit,
+                     exe_samtools = params$exe_samtools)
+    f_remove_contigs(fn_in        = fn_hap2_intrahap,
+                     ls_remove    = ls_drop,
+                     fn_out       = fn_hap2_dedup,
+                     exe_seqkit   = params$exe_seqkit,
+                     exe_samtools = params$exe_samtools)
 }
 
-# index the FASTA file
-system(paste(params$exe_samtools, "faidx", fn_hap1_dedup))
-system(paste(params$exe_samtools, "faidx", fn_hap2_dedup))
+log4r::info(fn_logger, paste0(length(ls_drop), " cross-haplotype duplicates removed"))
 ```
 
 ```{r dv-scoring}
@@ -474,11 +514,7 @@ for (hap in names(ls_haps)) {
     df_blob    <- ls_haps[[hap]]$blob
 
     # extract all contigs that are found across output
-    ls_contigs       <- sort(unique(c(df_dec$contig, df_vir$contig, df_len$contig)))
-    ls_dedup_contigs <- unlist(lapply(c(fn_hap1_dedup, fn_hap2_dedup), function(fn) {
-        data.table::fread(paste0(fn, ".fai"), header=F, select=1, colClasses="character")[[1]]
-    }))
-    ls_contigs       <- ls_contigs[ls_contigs %in% ls_dedup_contigs]
+    ls_contigs <- sort(unique(c(df_dec$contig, df_vir$contig, df_len$contig)))
 
     # index contigs across output
     idx_dec  <- match(ls_contigs, df_dec$contig)
