@@ -474,7 +474,11 @@ for (hap in names(ls_haps)) {
     df_blob    <- ls_haps[[hap]]$blob
 
     # extract all contigs that are found across output
-    ls_contigs <- sort(unique(c(df_dec$contig, df_vir$contig, df_len$contig)))
+    ls_contigs       <- sort(unique(c(df_dec$contig, df_vir$contig, df_len$contig)))
+    ls_dedup_contigs <- unlist(lapply(c(fn_hap1_dedup, fn_hap2_dedup), function(fn) {
+        data.table::fread(paste0(fn, ".fai"), header=F, select=1, colClasses="character")[[1]]
+    }))
+    ls_contigs       <- ls_contigs[ls_contigs %in% ls_dedup_contigs]
 
     # index contigs across output
     idx_dec  <- match(ls_contigs, df_dec$contig)
