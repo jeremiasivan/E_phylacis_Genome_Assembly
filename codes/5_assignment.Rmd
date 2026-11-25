@@ -850,9 +850,10 @@ df_contig <- df_contig %>%
                 select(-partner_parent)
 
 # add the evidences
-df_contig <- f_check_all(df_contig   = df_contig,
-                         ls_opposite = ls_opposite,
-                         min_cov     = 0.5)
+df_contig <- f_check_all(df_contig       = df_contig,
+                         ls_opposite     = ls_opposite,
+                         ls_parent_chrom = ls_parent_chrom,
+                         min_cov         = 0.5)
 
 # save the data.frame
 df_out <- data.table::data.table(contig           = df_contig$contig,

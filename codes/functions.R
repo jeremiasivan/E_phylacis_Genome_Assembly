@@ -641,13 +641,10 @@ f_merqury_trio <- function(db_reads, db_ref1, db_ref2, hap1, hap2, prefix, exe_m
 }
 
 # function: check every contig's assignment against the evidence that was not used to make it
-f_check_all <- function(df_contig, ls_opposite, min_cov) {
-    # create a vector that maps every contig to its assigned parent
-    ls_parent_assigned <- setNames(df_contig$parent, df_contig$contig)
-
+f_check_all <- function(df_contig, ls_opposite, ls_parent_chrom, min_cov) {
     # check every contig's assignment
     df_contig %>%
-        mutate(partner_parent = unname(ls_parent_assigned[partner]),
+        mutate(partner_parent = unname(ls_parent_chrom[partner]),
                check_intrinsic = case_when(
                    !is.na(dv_call) & !is.na(hapmer_call) & dv_call != hapmer_call      ~ "conflicting evidence",
                    is.na(dv_call) | is.na(hapmer_call)                                 ~ "no intrinsic call",
