@@ -143,10 +143,13 @@ if (!file.exists(params$fn_ptDNA_validation)) {
 
         # remove the IRa region (which is identical to IRb)
         fn_ptDNA_noIRa <- file.path(outdir_organelle_validation, "E_phylacis.pltd.noIRa.fasta")
-        system(paste(params$exe_samtools, "faidx", fn_ptDNA))
-        system(paste(params$exe_samtools, "faidx", fn_ptDNA, "ctg000001c:1-134146 >", fn_ptDNA_noIRa))
-        system(paste(params$exe_samtools, "faidx", fn_ptDNA_noIRa))
 
+        if (!file.exists(fn_ptDNA_noIRa) || params$redo) {
+            system(paste(params$exe_samtools, "faidx", fn_ptDNA))
+            system(paste(params$exe_samtools, "faidx", fn_ptDNA, "ctg000001c:1-134146 >", fn_ptDNA_noIRa))
+            system(paste(params$exe_samtools, "faidx", fn_ptDNA_noIRa))
+        }
+        
         # create doSNOW clusters
         nwcl <- makeCluster(params$thread)
         registerDoSNOW(nwcl)
@@ -166,7 +169,7 @@ if (!file.exists(params$fn_ptDNA_validation)) {
 
             if (!file.exists(fn_bam) || file.size(fn_bam) < 1000000 || params$redo) {
                 f_minimap2_shortreads(fn_ref         = fn_ptDNA_noIRa,
-                                      minimap_params = "-ax sr",
+                                      minimap_params = "-ax sr -K 50M",
                                       fn_fastq_r1    = df_subset$r1_dir[1],
                                       fn_fastq_r2    = df_subset$r2_dir[1],
                                       fn_out         = fn_bam,

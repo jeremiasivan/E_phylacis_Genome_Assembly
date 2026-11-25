@@ -779,7 +779,10 @@ df_best  <- bind_rows(df_pairs %>% transmute(contig = h1, partner = h2, cov = h1
 # intrinsic evidence: delta ID call
 df_dvscore <- data.table::fread(file.path(outdir_assignment_dvscoring, "dv_scoring.tsv"), sep = "\t", colClasses = list(character = c("contig", "partner")))
 ls_dv_call <- df_dvscore %>%
-                filter(call %in% names(ls_opposite)) %>%
+                mutate(aligned_bp = pmax(dec_aligned, vir_aligned) / 100 * length,
+                       call       = case_when(aligned_bp >= 10000 & delta >=  0.5 ~ "decipiens",
+                                              aligned_bp >= 10000 & delta <= -0.5 ~ "virginea")) %>%
+                filter(!is.na(call)) %>%
                 select(contig, call) %>%
                 deframe()
 
@@ -790,8 +793,8 @@ ls_hap_call <- df_hapmers %>%
                               n_vir   = as.numeric(.data[["E_virginea.unique"]]),
                               n_dec   = as.numeric(.data[["E_decipiens.unique"]]),
                               n_total = n_vir + n_dec,
-                              call    = case_when(n_total >= 1000 & n_vir / n_total >= 0.9 ~ "virginea",
-                                                  n_total >= 1000 & n_dec / n_total >= 0.9 ~ "decipiens")) %>%
+                              call    = case_when(n_total >= 1000 & (n_dec - n_vir) / n_total >=  0.5 ~ "decipiens",
+                                                  n_total >= 1000 & (n_dec - n_vir) / n_total <= -0.5 ~ "virginea")) %>%
                     filter(!is.na(call)) %>%
                     select(contig, call) %>%
                     deframe()
@@ -812,8 +815,8 @@ df_contig <- df_contig %>%
 df_contig <- df_contig %>%
                 mutate(dv_call     = unname(ls_dv_call[contig]),
                        hapmer_call = unname(ls_hap_call[contig]),
-                       intrinsic   = case_when(is.na(dv_call)                              ~ hapmer_call,
-                                               is.na(hapmer_call) | hapmer_call == dv_call ~ dv_call,
+                       intrinsic   = case_when(is.na(dv_call) | is.na(hapmer_call) ~ NA_character_,
+                                               dv_call == hapmer_call              ~ dv_call,
                                                .default = NA_character_))
 
 # add the parental chromosomes
@@ -838,12 +841,10 @@ if (length(ls_no_parent) > 0) {
 # apply the rules in priority order
 df_contig <- df_contig %>%
                 mutate(partner_parent = unname(ls_parent_chrom[partner]),
-                       rule   = case_when(contig %in% names(ls_parent_chrom)           ~ "chromosome",
-                                          !is.na(partner_parent) & partner_cov >= 0.5  ~ "group",
-                                          !is.na(intrinsic)                            ~ "intrinsic",
-                                          .default = "unassigned"),
+                       rule   = case_when(contig %in% names(ls_parent_chrom)  ~ "chromosome",
+                                          is.na(intrinsic)                    ~ "unassigned",
+                                          .default = "intrinsic"),
                        parent = case_when(rule == "chromosome" ~ unname(ls_parent_chrom[contig]),
-                                          rule == "group"      ~ unname(ls_opposite[partner_parent]),
                                           rule == "intrinsic"  ~ intrinsic,
                                           .default = "unassigned")) %>%
                 select(-partner_parent)
