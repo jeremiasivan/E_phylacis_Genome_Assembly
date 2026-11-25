@@ -648,28 +648,22 @@ f_check_all <- function(df_contig, ls_opposite, min_cov) {
     # check every contig's assignment
     df_contig %>%
         mutate(partner_parent = unname(ls_parent_assigned[partner]),
-               partner_parent = if_else(partner_parent %in% "unassigned", NA_character_, partner_parent),
                check_intrinsic = case_when(
-                   rule == "unassigned"                                                ~ "-",
                    !is.na(dv_call) & !is.na(hapmer_call) & dv_call != hapmer_call      ~ "conflicting evidence",
-                   is.na(intrinsic)                                                    ~ "no intrinsic call",
-                   rule == "intrinsic" | intrinsic == parent                           ~ "consistent",
-                   rule == "group" & partner_identity >= 0.99                          ~ "identical-filler",
-                   .default = "CHECK"),
+                   is.na(dv_call) | is.na(hapmer_call)                                 ~ "no intrinsic call",
+                   .default = "consistent"),
                check_pair = case_when(
                    rule == "unassigned"                                                ~ "-",
                    is.na(partner_parent) | partner_cov < min_cov                       ~ "no partner evidence",
-                   rule == "group" | partner_parent == unname(ls_opposite[parent])     ~ "consistent",
+                   partner_parent == unname(ls_opposite[parent])                       ~ "consistent",
                    .default = "CHECK"),
                check_synteny = case_when(
                    is.na(dec_chrom) | is.na(vir_chrom) | dec_chrom == "-" | vir_chrom == "-"        ~ "no synteny evidence",
                    dec_chrom == vir_chrom                                                           ~ "consistent",
                    .default = "CHECK"),
                check = case_when(
-                   rule == "unassigned"                                                              ~ "-",
-                   check_intrinsic == "CHECK" | check_pair == "CHECK" | check_synteny == "CHECK"     ~ "CHECK",
-                   check_intrinsic == "conflicting evidence"                                         ~ "conflicting evidence",
-                   check_intrinsic == "identical-filler"                                             ~ "identical-filler",
+                   rule == "unassigned"                              ~ "-",
+                   check_pair == "CHECK" | check_synteny == "CHECK"  ~ "CHECK",
                    .default = "consistent")) %>%
         select(-partner_parent)
 }
@@ -741,7 +735,7 @@ f_chromosome_bins <- function(df_assign, df_dvscore, parent, col_chrom, min_alig
     df_bins <- df_assign %>%
                     left_join(df_ref %>% select(contig, aligned, same_chrom), by = "contig") %>%
                     filter(parent == !!parent,
-                           rule %in% c("chromosome", "group") | (rule == "intrinsic" & aligned >= min_aligned & same_chrom)) %>%   
+                           rule %in% c("chromosome") | (rule == "intrinsic" & aligned >= min_aligned & same_chrom)) %>%   
                     mutate(anchor    = if_else(rule == "group", partner, contig),
                            ref_chrom = unname(ls_ref_chrom[anchor])) %>%
                     filter(!is.na(ref_chrom)) %>%
