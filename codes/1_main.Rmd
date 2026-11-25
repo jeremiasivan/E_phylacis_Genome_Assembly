@@ -72,7 +72,7 @@ params:
   exe_bcftools         : "bcftools"
   exe_iqtree           : "iqtree2"
 
-  # run scaffolding for each haplotype
+  # run scaffolding (please make necessary changes to the decipiens- and virginea-like FASTA files prior to scaffolding)
   run_scaffolding      : TRUE
   scaffold_reference   : "GCA_037349125.1.fna"
   scaffold_chr_map     : "/home/user/E_phylacis_Genome_Assembly/files/assignment/E_regnans_chr_map.tsv"

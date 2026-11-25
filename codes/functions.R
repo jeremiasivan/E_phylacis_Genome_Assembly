@@ -275,11 +275,26 @@ f_minimap2_shortreads <- function(fn_ref, minimap_params, fn_fastq_r1, fn_fastq_
 
     # index the BAM file
     system(paste(exe_samtools, "index", fn_out))
+}
+
+# function: extract regions with low coverage
+f_lowcov_bed <- function(fn_bam, fn_bed, min_depth, exe_samtools) {
+    # calculate depth for every position in the BAM file
+    df_depth <- data.table::fread(cmd = paste(exe_samtools, "depth -a", fn_bam), header = FALSE,
+                                  col.names = c("contig", "pos", "depth"), colClasses = list(character = 1))
 
     # extract regions with low depth
-    system(paste(exe_samtools, "depth -a", fn_out,
-                 "|", "awk '$3<10 {print $1\"\t\"$2-1\"\t\"$2}'", 
-                 "|", exe_bedtools, "merge >", gsub(".bam", ".lowcov.bed", fn_out)))
+    df_low <- df_depth %>%
+                  filter(depth < min_depth) %>%
+                  arrange(contig, pos) %>%
+                  group_by(contig) %>%
+                  mutate(run = cumsum(is.na(lag(pos)) | pos != lag(pos) + 1)) %>% 
+                  group_by(contig, run) %>%
+                  summarise(start = min(pos) - 1, end = max(pos), .groups = "drop") %>%
+                  select(contig, start, end)
+    
+    # save as BED file
+    data.table::fwrite(df_low, fn_bed, sep = "\t", col.names = FALSE)
 }
 
 # function: variant calling

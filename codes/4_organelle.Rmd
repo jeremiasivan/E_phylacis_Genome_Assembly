@@ -138,7 +138,7 @@ if (!file.exists(params$fn_ptDNA_validation)) {
         outdir_validation_consensus  <- file.path(outdir_organelle_validation, "02_consensus")
         outdir_validation_tree       <- file.path(outdir_organelle_validation, "03_tree")
 
-        sapply(c(outdir_validation_shortreads, outdir_validation_mapping, outdir_validation_consensus, outdir_validation_tree), function(x) {
+        sapply(c(outdir_validation_mapping, outdir_validation_consensus, outdir_validation_tree), function(x) {
             if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
         # remove the IRa region (which is identical to IRb)
@@ -178,7 +178,17 @@ if (!file.exists(params$fn_ptDNA_validation)) {
                                       exe_samtools   = params$exe_samtools,
                                       exe_bedtools   = params$exe_bedtools)
             }
-            
+
+            # extract regions with low coverage
+            fn_lowcov_bed <- file.path(outdir_validation_mapping, paste0(sample, ".lowcov.bed"))
+
+            if (!file.exists(fn_lowcov_bed) || params$redo) {
+                f_lowcov_bed(fn_bam       = fn_bam,
+                             fn_bed       = fn_lowcov_bed,
+                             min_depth    = 10,
+                             exe_samtools = params$exe_samtools)
+            }
+
             # variant calling
             fn_vcf_gz <- file.path(outdir_validation_mapping, paste0(sample, ".vcf.gz"))
 
@@ -195,7 +205,7 @@ if (!file.exists(params$fn_ptDNA_validation)) {
 
             if (!file.exists(fn_consensus) || params$redo) {
                 f_call_consensus(fn_ref       = fn_ptDNA_noIRa,
-                                 fn_bed       = file.path(outdir_validation_mapping, paste0(sample, ".lowcov.bed")),
+                                 fn_bed       = fn_lowcov_bed,
                                  fn_vcf       = file.path(outdir_validation_mapping, paste0(sample, ".snps.vcf.gz")),
                                  fn_consensus = fn_consensus,
                                  exe_bcftools = params$exe_bcftools)
