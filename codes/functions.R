@@ -893,7 +893,7 @@ f_telomere_check <- function(fn_windows, fn_agp, fn_out, fn_ends_out, fn_exclude
         # extract candidate arrays
         cand <- df_a %>% filter(start < anc_lo + edge)
         if (nrow(cand) == 0) {
-            return(tibble(telomere = FALSE, copies = NA, at_scaffold_end = NA, n_beyond = 0, beyond_bp = 0, beyond = NA_character_))
+            return(tibble(telomere = FALSE, copies = NA_real_, at_scaffold_end = NA, n_beyond = 0, beyond_bp = 0, beyond = NA_character_))
         }
 
         # find the nearest array to the anchor
@@ -901,7 +901,7 @@ f_telomere_check <- function(fn_windows, fn_agp, fn_out, fn_ends_out, fn_exclude
         i_host  <- which(df_c$start <= min(nearest$end, anc_lo + edge) & min(nearest$end, anc_lo + edge) <= df_c$end)
 
         # find the contigs that lie beyond the nearest array
-        beyond  <- ifelse (length(i_host), df_c %>% filter(end < df_c$start[i_host[1]]), df_c[0, ])
+        beyond  <- if (length(i_host)) df_c %>% filter(end < df_c$start[i_host[1]]) else df_c[0, ]
 
         # return a tibble with the results
         tibble(telomere = TRUE,
@@ -932,9 +932,9 @@ f_telomere_check <- function(fn_windows, fn_agp, fn_out, fn_ends_out, fn_exclude
         ls_ends[[i]] <- bind_rows(left  = f_end(df_a, df_c, df_scaf$anc_start[i]),
                                   right = f_end(mirror(df_a), mirror(df_c), L - df_scaf$anc_end[i]),
                                   .id   = "side") %>%
-                            mutate(scaffold = s,
-                                   anchor   = df_scaf$anchor[i],
-                                   .before  = 1)
+                        mutate(scaffold = s,
+                               anchor   = df_scaf$anchor[i],
+                               .before  = 1)
     }
     df_ends <- bind_rows(ls_ends)
 
