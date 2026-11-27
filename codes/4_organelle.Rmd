@@ -155,7 +155,7 @@ if (!file.exists(params$fn_ptDNA_validation)) {
         registerDoSNOW(nwcl)
 
         # iterate over sample
-        foreach (sample = unique(df_metadata$samples)) %dopar% {
+        foreach (sample = unique(df_metadata$samples), .packages = c("tidyverse")) %dopar% {
             # subset the data.frame
             df_subset <- df_metadata[df_metadata$samples == sample, ]
 

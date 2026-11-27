@@ -9,9 +9,8 @@ outdir_scaffolding_uniontoref    <- file.path(outdir_scaffolding, "01_union_to_r
 outdir_scaffolding_haptounion    <- file.path(outdir_scaffolding, "02_hap_to_union")
 outdir_haptounion_virlike        <- file.path(outdir_scaffolding_haptounion, "virlike")
 outdir_haptounion_declike        <- file.path(outdir_scaffolding_haptounion, "declike")
-outdir_scaffolding_binning       <- file.path(outdir_scaffolding, "03_binning")
 
-sapply(c(outdir_scaffolding_uniontoref, outdir_haptounion_virlike, outdir_haptounion_declike, outdir_scaffolding_binning), function(x) {
+sapply(c(outdir_scaffolding_uniontoref, outdir_haptounion_virlike, outdir_haptounion_declike), function(x) {
   if (!dir.exists(x)) { dir.create(x, recursive=T) }})
 
 # check if scaffolding reference genome exists
@@ -103,6 +102,9 @@ for (parent in c("decipiens", "virginea")) {
                                  parent      = parent,
                                  col_chrom   = ifelse(parent=="decipiens", "dec_chrom", "vir_chrom"),
                                  ls_anchors  = ls_anchors)
+    
+    # extract only the 11 chromosomes
+    df_bins <- df_bins %>% filter(startsWith(ref_chrom, "Chr"))
     data.table::fwrite(df_bins, file.path(dir_parent, "chr_bins.tsv"), sep="\t")
 
     # set up variables
