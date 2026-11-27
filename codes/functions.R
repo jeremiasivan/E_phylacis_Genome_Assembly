@@ -729,30 +729,21 @@ f_ragtag <- function(fn_ref, fn_query, ragtag_params, dir_out, thread, exe_ragta
 }
 
 # function: chromosome binning
-f_chromosome_bins <- function(df_assign, df_dvscore, parent, col_chrom, min_aligned) {
-    # extract the reference chromosome of every contig
-    df_ref <- df_dvscore %>%
-                  transmute(contig,
-                            ref_chrom = .data[[col_chrom]],
-                            aligned = .data[[sub("chrom", "aligned", col_chrom)]],
-                            same_chrom = dec_chrom == vir_chrom)
-
+f_chromosome_bins <- function(df_assign, df_dvscore, parent, col_chrom, ls_anchors) {
     # filter invalid contigs
-    ls_ref_chrom <- df_ref %>%
+    ls_ref_chrom <- df_dvscore %>%
+                        select(contig, ref_chrom = all_of(col_chrom)) %>%
                         filter(!is.na(ref_chrom), ref_chrom != "-") %>%
-                        select(contig, ref_chrom) %>%
                         deframe()
 
     # extract the contigs per chromosome
     df_bins <- df_assign %>%
-                    left_join(df_ref %>% select(contig, aligned, same_chrom), by = "contig") %>%
-                    filter(parent == !!parent,
-                           rule %in% c("chromosome") | (rule == "intrinsic" & aligned >= min_aligned & same_chrom)) %>%   
-                    mutate(anchor    = if_else(rule == "group", partner, contig),
-                           ref_chrom = unname(ls_ref_chrom[anchor])) %>%
-                    filter(!is.na(ref_chrom)) %>%
-                    select(ref_chrom, contig, rule, anchor) %>%
-                    arrange(ref_chrom, desc(rule == "chromosome"), contig)
+                   filter(parent == !!parent) %>%
+                   mutate(anchor    = if_else(rule != "chromosome" & partner %in% ls_anchors, partner, contig),
+                          ref_chrom = unname(ls_ref_chrom[anchor])) %>%
+                   filter(!is.na(ref_chrom)) %>%
+                   select(ref_chrom, contig, rule, anchor) %>%
+                   arrange(ref_chrom, desc(rule == "chromosome"), contig)
 
     return(df_bins)
 }

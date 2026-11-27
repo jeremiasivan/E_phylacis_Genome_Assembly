@@ -97,7 +97,7 @@ for (parent in c("decipiens", "virginea")) {
                                  df_dvscore  = df_dvscore,
                                  parent      = parent,
                                  col_chrom   = ifelse(parent=="decipiens", "dec_chrom", "vir_chrom"),
-                                 min_aligned = 50)
+                                 ls_anchors  = ls_anchors)
     data.table::fwrite(df_bins, file.path(dir_parent, "chr_bins.tsv"), sep="\t")
 
     # set up variables
