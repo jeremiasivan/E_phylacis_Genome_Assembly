@@ -44,7 +44,10 @@ Biostrings::writeXStringSet(seq, filepath=fn_scaffold_ref)
 ```{r union-to-ref}
 # combine the two haplotypes
 fn_dedup_union <- file.path(outdir_scaffolding, "union.dedup.fa")
-system(paste("cat", fn_hap1_dedup, fn_hap2_dedup, ">", fn_dedup_union))
+
+if (!file.exists(fn_dedup_union) || params$redo) {
+    system(paste("cat", fn_hap1_dedup, fn_hap2_dedup, ">", fn_dedup_union))
+}
 
 # run RagTag
 fn_union2ref <- file.path(outdir_scaffolding_uniontoref, "union_chr.fa")
@@ -69,10 +72,12 @@ fn_decipiens_like <- file.path(outdir_scaffolding, "decipiens_like.fa")
 fn_virginea_like  <- file.path(outdir_scaffolding, "virginea_like.fa")
 
 # iterate over parents
-for (parent in c("decipiens", "virginea")) {
-    system(paste(params$exe_seqkit, "grep",
-                 "-f", file.path(outdir_assignment_final, paste0(parent, "_contig.txt")),
-                 fn_dedup_union, ">", file.path(outdir_scaffolding, paste0(parent, "_like.fa"))))
+if (!all(file.exists(fn_decipiens_like, fn_virginea_like)) || params$redo) {
+    for (parent in c("decipiens", "virginea")) {
+        system(paste(params$exe_seqkit, "grep",
+                     "-f", file.path(outdir_assignment_final, paste0(parent, "_contig.txt")),
+                     fn_dedup_union, ">", file.path(outdir_scaffolding, paste0(parent, "_like.fa"))))
+    }
 }
 ```
 
